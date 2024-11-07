@@ -6,6 +6,11 @@ class Program
 {
     static void Main(string[] args)
     {
+        InitializeGame();
+    }
+
+    public static void InitializeGame()
+    {
         Inventory inventory = new Inventory();
 
         Console.WriteLine("Veuillez choisir le nom de votre héros.");
@@ -512,9 +517,35 @@ class Combat
             else
             {
                 Console.WriteLine("Le jeu est terminé !");
+                Console.WriteLine("Appuyez sur une touche pour continuer...");
+                Console.ReadKey(true);  // Attend que l'utilisateur appuie sur une touche
+                Console.WriteLine("Voulez-vous rejouer ?");
+                Console.WriteLine("1 : Rejouer || 2 : Quitter");
+
+                var choice = Console.ReadKey(true).KeyChar;
+
+                switch (choice)
+                {
+                    case '1':
+                        Console.Clear();
+                        Program.InitializeGame();
+                        break;
+
+                    case '2':
+                        Console.WriteLine("Merci d'avoir joué !");
+                        Console.ReadKey(true);
+                        Environment.Exit(0);
+                        break;
+
+                    default:
+                        Console.WriteLine("Choix invalide. Veuillez réessayer.");
+                        break;
+                }
+
                 break;  // Fin du jeu si le joueur meurt
             }
         }
+
     }
 
 
@@ -622,12 +653,6 @@ class Combat
             Console.WriteLine();
         }
     }
-
-    //private void DisplayInventory(Inventory inventory)
-    //{
-    //    Console.WriteLine("Inventaire actuel : ");
-    //    inventory.ShowInventory();
-    //}
 
     private void UseSpecialAbility(Character player, List<Character> enemies)
     {
