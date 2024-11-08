@@ -28,6 +28,7 @@ class Program
         Character player = new Character { Name = heros_name, Health = 500 };
 
         Console.WriteLine("Votre inventaire : ");
+        Console.WriteLine("Vous commencez avec une épée équipée");
         player.Inventory.AddItem("Potion de soin");
         player.Inventory.AddItem("Potion de soin");
         player.Inventory.AddItem("Potion de chance");
@@ -471,6 +472,11 @@ class Combat
                         {
                             int damageTaken = random.Next(10, 25);
                             Console.WriteLine();
+                            if(choice == '2')
+                                player.IsShielding = true;
+                            else
+                                player.IsShielding = false;
+
                             Console.WriteLine($"{enemy.Name} attaque et inflige {damageTaken} points de dégâts à {player.Name}!");
                             player.TakeDamage(damageTaken);
                             Console.WriteLine();
