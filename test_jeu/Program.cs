@@ -182,6 +182,8 @@ class Character
     public int Experience { get; set; } = 0;
     public int BaseAttackDamage { get; set; } = 5;
     public bool IsTargeted { get; set; }
+    public bool IsStunned { get; set; } // Indique si le personnage est actuellement étourdi
+    public int StunCounter { get; set; } = 0; // Compteur de tours d'étourdissement
     public Weapon EquippedWeapon { get; set; }
     public int LuckPotionDuration { get; set; } = 0;
     public int SpecialAbilityCooldown { get; set; } = 0; // Pour la capacité spéciale
@@ -192,6 +194,11 @@ class Character
 
     public Inventory Inventory { get; set; } = new Inventory(); // Inventaire du joueur
 
+    public Character()
+    {
+        IsStunned = false;
+        IsShielding = false;
+    }
     public void TakeDamage(int amount)
     {
         if (IsShielding)
@@ -470,19 +477,46 @@ class Combat
                     {
                         if (enemy.Health > 0 && !enemy.IsTargeted) // Ennemis non ciblés peuvent attaquer
                         {
-                            int damageTaken = random.Next(10, 25);
-                            Console.WriteLine();
-                            if(choice == '2')
-                                player.IsShielding = true;
-                            else
-                                player.IsShielding = false;
+                            if (enemy.IsStunned)
+                            {
+                                Console.WriteLine($"{enemy.Name} est encore étourdi et ne peut pas attaquer ce tour-ci.");
 
-                            Console.WriteLine($"{enemy.Name} attaque et inflige {damageTaken} points de dégâts à {player.Name}!");
-                            player.TakeDamage(damageTaken);
-                            Console.WriteLine();
+                                enemy.StunCounter++;
+                                if (enemy.StunCounter >= 2)
+                                {
+                                    enemy.IsStunned = false;  // Libère l’ennemi de l’étourdissement après 2 tours
+                                    enemy.StunCounter = 0;    // Réinitialise le compteur
+                                }
+                            }
+                            else
+                            {
+                                int damageTaken = random.Next(10, 25);
+                                Console.WriteLine();
+                                if (choice == '2')
+                                    player.IsShielding = true;
+                                else
+                                    player.IsShielding = false;
+
+                                // Étourdit l'ennemi immédiatement
+                                if (random.NextDouble() < 0.3 && player.IsShielding) // 30% de chances d'étourdir
+                                {
+                                    enemy.IsStunned = true;
+                                    enemy.StunCounter = 1; // Commence le compteur à 1 pour que l'effet dure deux tours
+                                    Console.WriteLine($"{enemy.Name} est étourdi par le bouclier de {player.Name} et ne pourra pas attaquer au prochain tour !");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"{enemy.Name} attaque et inflige {damageTaken} points de dégâts à {player.Name}!");
+                                    player.TakeDamage(damageTaken);
+                                    Console.WriteLine();
+                                }
+                            }
                         }
                     }
                 }
+
+
+
 
                 // Réinitialisation de l'état de tous les ennemis après chaque tour pour permettre aux ennemis de contre-attaquer dans le prochain tour
                 foreach (var enemy in enemies)
