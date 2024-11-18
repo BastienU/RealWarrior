@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 class Program
 {
@@ -283,8 +284,11 @@ class Character
         return damageDealt;
     }
 
-    public void UseSpecialAbility(List<Character> enemies)
+    public void UseSpecialAbility(List<Character> enemies, Character player)
     {
+        Random random = new Random();
+        int damageTaken = random.Next(10, 25);
+
         if (SpecialAbilityCooldown > 0)
         {
             Console.WriteLine($"Votre capacité spéciale est en cours de recharge. Il vous reste {SpecialAbilityCooldown} tours avant de pouvoir l'utiliser.");
@@ -300,17 +304,25 @@ class Character
 
             if (rand.Next(2) == 0) // 50% chance d'esquiver
             {
-                Console.WriteLine($"{enemy.Name} a esquivé la capacité spéciale et contre-attaque !");
-                // Protection contre les `NullReferenceException`
-                if (this.Health > 0) // On vérifie que le joueur est encore vivant
-                {
-                    enemy.Attack(new List<Character> { this });
-                }
+                Console.WriteLine($"{enemy.Name} esquive et contre-attaque !");
+                if (player != null && player.Health > 0)
+                    //enemy.Attack(new List<Character> { player });
+                    player.TakeDamage(damageTaken);
+                else
+                    Console.WriteLine("Aucune contre-attaque possible");
             }
             else
             {
-                Console.WriteLine($"{enemy.Name} a été touché par la capacité spéciale et ne peut plus attaquer pendant un tour !");
-                enemy.IsTargeted = true;  // Désactive l'attaque de l'ennemi pour un tour
+                const int specialAbilityDamage = 50;
+                enemy.Health -= specialAbilityDamage;
+                Console.WriteLine($"{enemy.Name} a été touché par la capacité spéciale et a subi {specialAbilityDamage} points de dégâts !");
+                if (enemy.Health <= 0)
+                    Console.WriteLine($"{enemy.Name} a été vaincu !");
+                else
+                {
+                    enemy.IsTargeted = true;  // Désactive l'attaque de l'ennemi pour ce tour
+                    Console.WriteLine($"{enemy.Name} ne peut pas attaquer ! Santé restante {enemy.Health}");
+                }
             }
         }
     }
@@ -468,6 +480,25 @@ class Combat
                 {
                     Console.WriteLine("Touche invalide! Veuillez choisir une action valide.");
                     actionValide = false;
+                }
+
+                if (player.SpecialAbilityCooldown > 0)
+                {
+                    if (choice == '1' || choice == '2')
+                    { 
+                        player.SpecialAbilityCooldown--;
+                    }
+                    
+                    if (player.SpecialAbilityCooldown == 0)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Votre capacité spéciale est de nouveau disponible !");
+                    }
+
+                    if (choice == '6')
+                    {
+                        continue;
+                    }
                 }
 
                 // Partie où les ennemis attaquent
@@ -696,7 +727,7 @@ class Combat
 
     private void UseSpecialAbility(Character player, List<Character> enemies)
     {
-        player.UseSpecialAbility(enemies);
+        player.UseSpecialAbility(enemies, player);
     }
 }
 #endregion
