@@ -297,35 +297,79 @@ class Character
 
         SpecialAbilityCooldown = 3; // Réinitialiser le cooldown à 3 tours
 
+        // Compter les ennemis étourdis
+        int stunnedCount = enemies.Count(enemy => enemy.IsStunned);
+
+        // Augmenter les chances de toucher les ennemis en fonction du nombre d'ennemis étourdis
+        // Plus d'ennemis étourdis = plus de chances de toucher
+        float baseChanceToHit = 0.5f;  // 50% de chance de toucher par défaut
+        float chanceToHit = baseChanceToHit + stunnedCount * 0.1f;  // Augmente de 10% par ennemi étourdi
+
+        // S'assurer que la chance de toucher ne dépasse pas 100%
+        chanceToHit = Math.Min(chanceToHit, 1.0f);
+
         Random rand = new Random();
         foreach (var enemy in enemies)
         {
             if (enemy.Health <= 0) continue;  // Si l'ennemi est déjà mort, on passe à l'ennemi suivant
 
-            if (rand.Next(2) == 0) // 50% chance d'esquiver
-            {
-                Console.WriteLine($"{enemy.Name} esquive et contre-attaque !");
-                if (player != null && player.Health > 0)
-                    //enemy.Attack(new List<Character> { player });
-                    player.TakeDamage(damageTaken);
-                else
-                    Console.WriteLine("Aucune contre-attaque possible");
-            }
-            else
+            // Si l'ennemi est étourdi, il subit la capacité spéciale sans pouvoir attaquer
+            if (enemy.IsStunned)
             {
                 const int specialAbilityDamage = 50;
                 enemy.Health -= specialAbilityDamage;
-                Console.WriteLine($"{enemy.Name} a été touché par la capacité spéciale et a subi {specialAbilityDamage} points de dégâts !");
+                Console.WriteLine($"{enemy.Name} est étourdi et a été automatiquement touché par la capacité spéciale, subissant {specialAbilityDamage} points de dégâts !");
                 if (enemy.Health <= 0)
+                {
                     Console.WriteLine($"{enemy.Name} a été vaincu !");
+                }
                 else
                 {
-                    enemy.IsTargeted = true;  // Désactive l'attaque de l'ennemi pour ce tour
-                    Console.WriteLine($"{enemy.Name} ne peut pas attaquer ! Santé restante {enemy.Health}");
+                    Console.WriteLine($"{enemy.Name} est toujours vivant ! Santé restante : {enemy.Health}");
+                }
+                // L'ennemi ne peut pas attaquer après avoir été étourdi
+                enemy.IsTargeted = true;
+            }
+            else
+            {
+                // Si l'ennemi n'est pas étourdi, on détermine si la capacité spéciale le touche
+                if (rand.NextDouble() <= chanceToHit)
+                {
+                    const int specialAbilityDamage = 50;
+                    enemy.Health -= specialAbilityDamage;
+                    Console.WriteLine($"{enemy.Name} a été touché par la capacité spéciale et a subi {specialAbilityDamage} points de dégâts !");
+                    if (enemy.Health <= 0)
+                    {
+                        Console.WriteLine($"{enemy.Name} a été vaincu !");
+                    }
+                    else
+                    {
+                        // Si l'ennemi est touché, il ne peut pas attaquer ce tour-ci
+                        enemy.IsTargeted = true;
+                        Console.WriteLine($"{enemy.Name} ne peut pas attaquer ! Santé restante : {enemy.Health}");
+                    }
+                }
+                else
+                {
+                    // L'ennemi esquive, mais on ne doit afficher que le message de contre-attaque
+                    if (rand.Next(2) == 0) // 50% chance d'esquiver et d'attaquer
+                    {
+                        Console.WriteLine($"{enemy.Name} esquive et contre-attaque !");
+                        if (player != null && player.Health > 0)
+                            player.TakeDamage(damageTaken);
+                        else
+                            Console.WriteLine("Aucune contre-attaque possible");
+                    }
+                    else
+                    {
+                        // Si l'ennemi esquive mais ne contre-attaque pas, afficher l'esquive
+                        Console.WriteLine($"{enemy.Name} a esquivé l'attaque !");
+                    }
                 }
             }
         }
     }
+
 
     public bool HasChancePotionActive { get; set; } = false; // Si la potion de chance est active
 
@@ -447,6 +491,75 @@ class Combat
                             actionValide = false;  // Si l'ennemi est invalide, on empêche l'action
                         }
                     }
+                    else if (player.EquippedWeapon.Name == "Épée")
+                    {
+                        Random rand = new Random();
+                        int enemiesToHit = rand.Next(1, Math.Min(4, enemies.Count + 1));  // Choisit entre 1 et 3 ennemis, ou moins si moins d'ennemis sont présents
+
+                        List<Character> enemiesHit = new List<Character>();
+
+                        for (int i = 0; i < enemiesToHit; i++)
+                        {
+                            // Choisir un ennemi aléatoire qui n'a pas encore été touché
+                            Character enemy = enemies[rand.Next(enemies.Count)];
+                            if (!enemiesHit.Contains(enemy) && enemy.Health > 0)
+                            {
+                                enemiesHit.Add(enemy);
+                                int damage = rand.Next(5, 15);
+                                Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
+                                enemy.TakeDamage(damage);
+                                //Console.WriteLine($"{enemy.Name} a été touché par l'épée et a subi {damage} points de dégâts.");
+                            }
+                        }
+                    }
+                    else if (player.EquippedWeapon.Name == "Espadon")
+                    {
+                        Random rand = new Random();
+
+                        // Vérifier si tous les ennemis sont étourdis
+                        bool allEnemiesStunned = enemies.All(e => e.IsStunned);
+
+                        if (allEnemiesStunned)
+                        {
+                            Console.WriteLine($"Tous les ennemis sont étourdis ! L'attaque avec {player.EquippedWeapon.Name} touche obligatoirement tous les ennemis !");
+                            foreach (var enemy in enemies)
+                            {
+                                if (enemy.Health > 0)
+                                {
+                                    int damage = rand.Next(12, 25);  // Dégâts élevés pour l'espadon
+                                    Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
+                                    enemy.TakeDamage(damage);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Vérifier si au moins un ennemi a été bloqué
+                            bool enemyBlocked = enemies.Any(e => e.IsStunned || player.IsShielding);
+
+                            // Ajuster les chances d'interruption
+                            double interruptionChance = enemyBlocked ? 0.2 : 0.5; // 20% si un ennemi est bloqué, sinon 50%
+
+                            if (rand.NextDouble() < interruptionChance)
+                            {
+                                Console.WriteLine($"{player.Name} a été interrompu, les ennemis attaquent !");
+                                // Ici, les ennemis peuvent attaquer normalement
+                            }
+                            else
+                            {
+                                foreach (var enemy in enemies)
+                                {
+                                    if (enemy.Health > 0)  // Vérifier que l'ennemi est en vie
+                                    {
+                                        int damage = rand.Next(12, 25);  // Dégâts élevés pour l'espadon
+                                        Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
+                                        enemy.TakeDamage(damage);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     else
                     {
                         // Si l'arme équipée n'est pas la lance, attaque tous les ennemis
