@@ -104,6 +104,7 @@ class Inventory
             Console.WriteLine();
             Console.WriteLine("Potion de chance utilisée! Vos ennemis auront plus de chance de laisser une potion en mourant.");
             player.HasChancePotionActive = true; // Activer l'effet de la potion de chance
+            player.LuckPotionDuration = 3;
             return true;
         }
         return false;
@@ -147,6 +148,12 @@ class Inventory
         Random rand = new Random();
         int lootChance = rand.Next(1, 101);
 
+        // Bonus de chance si la potion est active
+        if (player.HasChancePotionActive)
+        {
+            lootChance += 50;
+        }
+
         if (lootChance <= 20)
         {
             AddLoot("Potion de soin", player, enemy);
@@ -154,7 +161,6 @@ class Inventory
         else if (lootChance <= 30)
         {
             AddLoot("Potion de chance", player, enemy);
-            player.HasChancePotionActive = false;
         }
         else if (lootChance <= 35)
         {
@@ -167,6 +173,7 @@ class Inventory
     }
 
 
+
     private void AddLoot(string loot, Character player, Character enemy)
     {
         player.Inventory.AddItem(loot);
@@ -177,10 +184,13 @@ class Inventory
 #region Character
 class Character
 {
-    public string? Name { get; set; }
+    public string Name { get; set; }
     public int Health { get; set; }
-    public int Level { get; set; } = 1;
+    public int Level { get; set; }
+    public int MinDamage { get; set; }
+    public int MaxDamage { get; set; }
     public int Experience { get; set; } = 0;
+    public int ExperienceReward { get; set; }
     public int BaseAttackDamage { get; set; } = 5;
     public bool IsTargeted { get; set; }
     public bool IsStunned { get; set; } // Indique si le personnage est actuellement étourdi
@@ -192,6 +202,7 @@ class Character
     public int DamageBoost { get; private set; } = 0;
     public int TotalDamage => BaseAttackDamage + DamageBoost; // Dégâts totaux (base + boost)
     public bool IsShielding { get; set; } = false; // Le joueur se protège avec son bouclier
+    public bool IsBoss { get; set; } = false;
 
     public Inventory Inventory { get; set; } = new Inventory(); // Inventaire du joueur
 
@@ -231,13 +242,20 @@ class Character
 
     private void CheckLevelUp()
     {
-        if (Experience >= Level * 100)
+        int ActualLevel = 0;
+        while (Experience >= Level * 100) // Boucle pour gérer plusieurs montées de niveau en cas de grand gain
         {
+            Experience -= Level * 100; // Soustraire le seuil
             Level++;
-            Health += 100; // Regain de PV
-            BaseAttackDamage += 1; // Augmenter les dégâts de l'attaque de base
-            Experience = 0;
-            Console.WriteLine($"{Name} est monté au niveau {Level}! Santé: {Health}, Dégâts d'attaque: {BaseAttackDamage}");
+            Health += 50; // Regain de santé
+            BaseAttackDamage += 1; // Augmenter l'attaque de base
+            Console.WriteLine();
+            if (Level != ActualLevel)
+                Console.WriteLine($"{Name} est monté au niveau {Level} !");
+            ActualLevel = Level;
+            Console.WriteLine($"Vous gagnez 50 points de vie et votre attaque de base augmente de 1 !");
+            Console.WriteLine($"Santé: {Health}, Attaque de base: {BaseAttackDamage}");
+            Console.WriteLine();
         }
     }
 
@@ -322,6 +340,7 @@ class Character
                 if (enemy.Health <= 0)
                 {
                     Console.WriteLine($"{enemy.Name} a été vaincu !");
+                    //player.GainExperience(enemy.ExperienceReward);
                 }
                 else
                 {
@@ -341,6 +360,7 @@ class Character
                     if (enemy.Health <= 0)
                     {
                         Console.WriteLine($"{enemy.Name} a été vaincu !");
+                        //player.GainExperience(enemy.ExperienceReward);
                     }
                     else
                     {
@@ -388,6 +408,23 @@ class Character
             Console.WriteLine("Le bonus de dégâts a expiré.");
         }
     }
+
+    public void HandleLuckPotionEffects(Character player)
+    {
+        if (player.HasChancePotionActive)
+        {
+            player.LuckPotionDuration--; // Réduire la durée de la potion
+            if (player.LuckPotionDuration <= 0)
+            {
+                player.HasChancePotionActive = false; // Désactiver l'effet
+                Console.WriteLine("L'effet de la Potion de chance s'est dissipé.");
+            }
+        }
+    }
+
+    public Func<Character, bool> SpecialBehavior { get; set; }
+
+    
 
 
 }
@@ -606,6 +643,7 @@ class Combat
                     {
                         Console.WriteLine();
                         Console.WriteLine("Votre capacité spéciale est de nouveau disponible !");
+                        Console.WriteLine();
                     }
 
                     if (choice == '6')
@@ -683,11 +721,13 @@ class Combat
                 foreach (var enemy in deadEnemies)
                 {
                     inventory.LootPotion(enemy, player); // Appel à LootPotion si l'ennemi est mort
+                    player.GainExperience(enemy.ExperienceReward);
                     enemies.Remove(enemy); // Supprime l'ennemi mort de la liste principale
                 }
 
                 if (enemies.All(e => e.Health <= 0))
                 {
+                    player.HandleLuckPotionEffects(player);
                     Console.WriteLine("Tous les ennemis de la vague ont été vaincus!");
                     break;
                 }
@@ -732,19 +772,124 @@ class Combat
 
     }
 
+    private Character GenerateBoss(int wave)
+    {
+        List<Character> bosses = new List<Character>
+    {
+        new Character
+        {
+            Name = "Dragon",
+            Health = 300,
+            Level = wave,
+            MinDamage = 100,
+            MaxDamage = 200,
+            ExperienceReward = 500,
+            IsBoss = true,
+            SpecialBehavior = (player) =>
+            {
+                Console.WriteLine("Le Dragon utilise son souffle de feu, ignorant les défenses !");
+                return true; // Ignore les défenses du joueur
+            }
+        },
+        new Character
+        {
+            Name = "Serpent Géant",
+            Health = 300,
+            Level = wave,
+            MinDamage = 50,
+            MaxDamage = 100,
+            ExperienceReward = 500,
+            IsBoss = true,
+            SpecialBehavior = (player) =>
+            {
+                Console.WriteLine("Le Serpent se cache dans le sol pour esquiver une attaque !");
+                return false; // Évite une attaque du joueur
+            }
+        }
+    };
 
-
+        Random rand = new Random();
+        return bosses[rand.Next(bosses.Count)];
+    }
 
     private List<Character> GenerateEnemies(int wave)
     {
         List<Character> enemies = new List<Character>();
-        for (int i = 0; i < wave; i++)
+
+        // Boss à chaque 10e vague
+        if (wave % 10 == 0)
         {
-            Character enemy = new Character { Name = $"Ennemi {i + 1}", Health = 100 + (i * 20), Level = wave };
-            enemies.Add(enemy);
+            var boss = GenerateBoss(wave);  // Générer un boss spécifique
+            enemies.Add(boss);
         }
+        else
+        {
+            int numGoblin = 0;
+            int numTroll = 0;
+
+            // Générer les Gobelins et les Trolls de manière alternée
+            // On va utiliser une boucle pour ajouter les ennemis selon la logique des vagues
+            for (int i = 1; i <= wave; i++)
+            {
+                if (i % 2 != 0) // Vagues impaires = Gobelins
+                {
+                    numGoblin++;
+                    if (wave == 2)
+                        numGoblin--;
+                }
+                else // Vagues paires = Trolls
+                {
+                    numTroll++;
+                    numGoblin--;
+                }
+            }
+
+            // Ajouter les Gobelins
+            for (int i = 0; i < numGoblin; i++)
+            {
+                var goblin = CreateGoblin(i + 1);
+                enemies.Add(goblin);
+            }
+
+            // Ajouter les Trolls
+            for (int i = 0; i < numTroll; i++)
+            {
+                var troll = CreateTroll(i + 1);
+                enemies.Add(troll);
+            }
+        }
+
         return enemies;
     }
+
+
+    private Character CreateGoblin(int count)
+    {
+        return new Character
+        {
+            Name = $"Gobelin {count}",
+            Health = 50,
+            MinDamage = 5,
+            MaxDamage = 10,
+            ExperienceReward = 50
+        };
+    }
+
+    private Character CreateTroll(int count)
+    {
+        return new Character
+        {
+            Name = $"Troll {count}",
+            Health = 100,
+            MinDamage = 10,
+            MaxDamage = 20,
+            ExperienceReward = 100
+        };
+    }
+
+
+
+
 
     public void PerformAttack(Character player, List<Character> enemies)
     {
