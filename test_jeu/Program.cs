@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.CompilerServices;
 
 class Program
 {
@@ -15,7 +14,7 @@ class Program
         Inventory inventory = new Inventory();
 
         Console.WriteLine("Veuillez choisir le nom de votre héros.");
-        string? heros_name = Console.ReadLine();
+        string heros_name = Console.ReadLine();
 
         if (string.IsNullOrEmpty(heros_name))
         {
@@ -115,6 +114,7 @@ class Inventory
         if (items.Contains("Potion de dégâts"))
         {
             items.Remove("Potion de dégâts");
+            player.ApplyDamageBoost();
             player.IncreaseDamage(10, 10); // Augmente les dégâts de 10 pendant 10 tours.
             Console.WriteLine();
             Console.WriteLine("Potion de dégâts utilisée ! Vos dégâts sont augmentés temporairement.");
@@ -172,8 +172,6 @@ class Inventory
         }
     }
 
-
-
     private void AddLoot(string loot, Character player, Character enemy)
     {
         player.Inventory.AddItem(loot);
@@ -203,7 +201,7 @@ class Character
     public int TotalDamage => BaseAttackDamage + DamageBoost; // Dégâts totaux (base + boost)
     public bool IsShielding { get; set; } = false; // Le joueur se protège avec son bouclier
     public bool IsBoss { get; set; } = false;
-
+    public Func<Character, bool> SpecialBehavior { get; set; } // Défini la capacité spéciale du boss
     public Inventory Inventory { get; set; } = new Inventory(); // Inventaire du joueur
 
     public Character()
@@ -215,7 +213,7 @@ class Character
     {
         if (IsShielding)
         {
-            int reducedDamage = amount / 5; // Réduction de dégâts avec bouclier (ajustée à 50% pour plus de clarté)
+            int reducedDamage = amount / 5; // Réduction de dégâts avec bouclier
             Health -= reducedDamage;
             Console.WriteLine($"{Name} a bloqué une partie des dégâts avec son bouclier! Dégâts subis: {reducedDamage} | Santé restante: {Health}");
             IsShielding = false; // Le bouclier ne dure que pendant un tour
@@ -395,18 +393,19 @@ class Character
 
     public void IncreaseDamage(int bonus, int durationInTurns)
     {
-        DamageBoost = bonus;
-        Console.WriteLine();
-        Console.WriteLine($"Les dégâts sont augmentés de {bonus} points pour {durationInTurns} tours.");
+        if (HasDamageBoostPotion == true)
+        {
+            DamageBoost = bonus;
+            Console.WriteLine();
+            Console.WriteLine($"Les dégâts sont augmentés de {bonus} points pour {durationInTurns} tours.");
+            DecreaseDamageBoost();
+        }
     }
 
     public void DecreaseDamageBoost()
     {
-        if (DamageBoost > 0)
-        {
-            DamageBoost = 0;
-            Console.WriteLine("Le bonus de dégâts a expiré.");
-        }
+        if (DamageBoost == 0)
+            HasDamageBoostPotion = false;
     }
 
     public void HandleLuckPotionEffects(Character player)
@@ -422,11 +421,6 @@ class Character
         }
     }
 
-    public Func<Character, bool> SpecialBehavior { get; set; }
-
-    
-
-
 }
 #endregion
 
@@ -436,15 +430,13 @@ class Weapon
     public string Name { get; set; }
     public int MinDamage { get; set; }
     public int MaxDamage { get; set; }
-    public int AttackDelay { get; set; }
     public string Type { get; set; }
 
-    public Weapon(string name, int minDamage, int maxDamage, int attackDelay, string type)
+    public Weapon(string name, int minDamage, int maxDamage, string type)
     {
         Name = name;
         MinDamage = minDamage;
         MaxDamage = maxDamage;
-        AttackDelay = attackDelay;
         Type = type;
     }
 
@@ -462,11 +454,16 @@ class Combat
     private Random random = new Random();
     private List<Character> enemies;
 
+    /// TODO Revoir toute la méthode StarBattle pour traiter les points suivants : 
+    /// Méthode Attack et TakeDamage faisant sensiblement la même chose.
+    /// Clarifier le code et recréer les méthodes de manières plus propres, plus lisibles et plus pratique à entretenir.
+    /// Si possible, créer une méthode pour chaque action de sorte que la méthode StartBattle ne fasse qu'appeler chacune de ces méthodes.
+
     public void StartBattle(Character player, Inventory inventory)
     {
-        Weapon sword = new Weapon("Épée", 5, 15, 1, "mélée");
-        Weapon greatSword = new Weapon("Espadon", 12, 25, 2, "mélée");
-        Weapon spear = new Weapon("Lance", 5, 10, 1, "mélée");
+        Weapon sword = new Weapon("Épée", 5, 15, "mélée");
+        Weapon greatSword = new Weapon("Espadon", 12, 25, "mélée");
+        Weapon spear = new Weapon("Lance", 5, 10, "mélée");
 
         List<Weapon> availableWeapons = new List<Weapon> { sword, greatSword, spear };
 
@@ -485,11 +482,11 @@ class Combat
 
                 Console.WriteLine("Choisissez une action :");
                 Console.WriteLine("1. Attaquer");
-                Console.WriteLine("2. Défendre");
+                Console.WriteLine("2. Lever le bouclier");
                 Console.WriteLine("3. Utiliser une potion");
                 Console.WriteLine("4. Changer d'arme");
                 Console.WriteLine("5. Afficher l'inventaire");
-                Console.WriteLine("6. Utiliser une capacité spéciale");
+                Console.WriteLine("6. Utiliser la capacité spéciale");
                 Console.WriteLine();
 
                 var choice = Console.ReadKey(true).KeyChar;
@@ -619,7 +616,6 @@ class Combat
                 else if (choice == '5')
                 {
                     player.Inventory.ShowInventory();
-                    //DisplayInventory(inventory);
                     actionValide = false;
                 }
                 else if (choice == '6')
@@ -635,10 +631,10 @@ class Combat
                 if (player.SpecialAbilityCooldown > 0)
                 {
                     if (choice == '1' || choice == '2')
-                    { 
+                    {
                         player.SpecialAbilityCooldown--;
                     }
-                    
+
                     if (player.SpecialAbilityCooldown == 0)
                     {
                         Console.WriteLine();
@@ -772,6 +768,7 @@ class Combat
 
     }
 
+    /// TODO Revoir complètement la génération de vague pour les traiter une à une plutôt qu'utiliser une boucle qui génère des ennemis selon un pattern.
     private Character GenerateBoss(int wave)
     {
         List<Character> bosses = new List<Character>
@@ -889,29 +886,29 @@ class Combat
 
 
 
-
-
-    public void PerformAttack(Character player, List<Character> enemies)
-    {
-        // Si un ennemi spécifique a été ciblé, on l'attaque
-        if (player.EquippedWeapon.Name == "Lance")
-        {
-            // Demander à choisir un ennemi (cela a été fait dans StartBattle)
-            // Nous avons déjà géré ce cas dans la partie StartBattle ci-dessus
-        }
-        else
-        {
-            // Attaque tous les ennemis si ce n'est pas la lance
-            foreach (var enemy in enemies)
-            {
-                if (enemy.Health > 0)
-                {
-                    int damageDealt = player.Attack(enemies);
-                    Console.WriteLine($"{enemy.Name} a reçu {damageDealt} points de dégâts.");
-                }
-            }
-        }
-    }
+    #region Méthode inutilisée
+    //public void PerformAttack(Character player, List<Character> enemies)
+    //{
+    //    // Si un ennemi spécifique a été ciblé, on l'attaque
+    //    if (player.EquippedWeapon.Name == "Lance")
+    //    {
+    //        // Demander à choisir un ennemi (cela a été fait dans StartBattle)
+    //        // Nous avons déjà géré ce cas dans la partie StartBattle ci-dessus
+    //    }
+    //    else
+    //    {
+    //        // Attaque tous les ennemis si ce n'est pas la lance
+    //        foreach (var enemy in enemies)
+    //        {
+    //            if (enemy.Health > 0)
+    //            {
+    //                int damageDealt = player.Attack(enemies);
+    //                Console.WriteLine($"{enemy.Name} a reçu {damageDealt} points de dégâts.");
+    //            }
+    //        }
+    //    }
+    //} 
+    #endregion
 
 
     // Méthode affichant le menu de choix de potion à utiliser.
