@@ -221,6 +221,7 @@ class Character
         else
         {
             Health -= amount;
+            Console.WriteLine();
             Console.WriteLine($"{Name} a subi {amount} points de dégâts. Santé restante: {Health}");
         }
     }
@@ -477,156 +478,16 @@ class Combat
 
             while (player.Health > 0 && enemies.Count > 0)
             {
-                Console.WriteLine();
-                Console.WriteLine($"{player.Name} - Santé: {player.Health} | Niveau: {player.Level} | XP: {player.Experience}");
-
-                Console.WriteLine("Choisissez une action :");
-                Console.WriteLine("1. Attaquer");
-                Console.WriteLine("2. Lever le bouclier");
-                Console.WriteLine("3. Utiliser une potion");
-                Console.WriteLine("4. Changer d'arme");
-                Console.WriteLine("5. Afficher l'inventaire");
-                Console.WriteLine("6. Utiliser la capacité spéciale");
-                Console.WriteLine();
+                //Print the action menu
+                DisplayMenu(player);
 
                 var choice = Console.ReadKey(true).KeyChar;
                 Console.WriteLine();
 
                 bool actionValide = true;
 
-                // Action choisie
-                if (choice == '1')  // Attaquer
-                {
-                    if (player.EquippedWeapon.Name == "Lance")  // Si la lance est équipée
-                    {
-                        // Choisir un ennemi spécifique à attaquer
-                        Console.WriteLine("Choisissez un ennemi à cibler :");
-                        for (int i = 0; i < enemies.Count; i++)
-                        {
-                            if (enemies[i].Health > 0) // N'afficher que les ennemis vivants
-                            {
-                                Console.WriteLine($"{i + 1}. {enemies[i].Name} (Santé: {enemies[i].Health})");
-                            }
-                        }
-
-                        // Lire la sélection de l'utilisateur
-                        char enemyChoice = Console.ReadKey(true).KeyChar;
-                        int enemyIndex = int.TryParse(enemyChoice.ToString(), out enemyIndex) ? enemyIndex - 1 : -1;
-
-                        if (enemyIndex >= 0 && enemyIndex < enemies.Count && enemies[enemyIndex].Health > 0)
-                        {
-                            // Si l'ennemi sélectionné est valide et vivant, attaque cet ennemi
-                            Character targetEnemy = enemies[enemyIndex];
-                            player.Attack(enemies, targetEnemy);  // Attaque ciblée sur un seul ennemi
-                        }
-                        else
-                        {
-                            Console.WriteLine("Choix invalide ou ennemi déjà mort.");
-                            actionValide = false;  // Si l'ennemi est invalide, on empêche l'action
-                        }
-                    }
-                    else if (player.EquippedWeapon.Name == "Épée")
-                    {
-                        Random rand = new Random();
-                        int enemiesToHit = rand.Next(1, Math.Min(4, enemies.Count + 1));  // Choisit entre 1 et 3 ennemis, ou moins si moins d'ennemis sont présents
-
-                        List<Character> enemiesHit = new List<Character>();
-
-                        for (int i = 0; i < enemiesToHit; i++)
-                        {
-                            // Choisir un ennemi aléatoire qui n'a pas encore été touché
-                            Character enemy = enemies[rand.Next(enemies.Count)];
-                            if (!enemiesHit.Contains(enemy) && enemy.Health > 0)
-                            {
-                                enemiesHit.Add(enemy);
-                                int damage = rand.Next(5, 15);
-                                Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
-                                enemy.TakeDamage(damage);
-                                //Console.WriteLine($"{enemy.Name} a été touché par l'épée et a subi {damage} points de dégâts.");
-                            }
-                        }
-                    }
-                    else if (player.EquippedWeapon.Name == "Espadon")
-                    {
-                        Random rand = new Random();
-
-                        // Vérifier si tous les ennemis sont étourdis
-                        bool allEnemiesStunned = enemies.All(e => e.IsStunned);
-
-                        if (allEnemiesStunned)
-                        {
-                            Console.WriteLine($"Tous les ennemis sont étourdis ! L'attaque avec {player.EquippedWeapon.Name} touche obligatoirement tous les ennemis !");
-                            foreach (var enemy in enemies)
-                            {
-                                if (enemy.Health > 0)
-                                {
-                                    int damage = rand.Next(12, 25);  // Dégâts élevés pour l'espadon
-                                    Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
-                                    enemy.TakeDamage(damage);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // Vérifier si au moins un ennemi a été bloqué
-                            bool enemyBlocked = enemies.Any(e => e.IsStunned || player.IsShielding);
-
-                            // Ajuster les chances d'interruption
-                            double interruptionChance = enemyBlocked ? 0.2 : 0.5; // 20% si un ennemi est bloqué, sinon 50%
-
-                            if (rand.NextDouble() < interruptionChance)
-                            {
-                                Console.WriteLine($"{player.Name} a été interrompu, les ennemis attaquent !");
-                                // Ici, les ennemis peuvent attaquer normalement
-                            }
-                            else
-                            {
-                                foreach (var enemy in enemies)
-                                {
-                                    if (enemy.Health > 0)  // Vérifier que l'ennemi est en vie
-                                    {
-                                        int damage = rand.Next(12, 25);  // Dégâts élevés pour l'espadon
-                                        Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
-                                        enemy.TakeDamage(damage);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    else
-                    {
-                        // Si l'arme équipée n'est pas la lance, attaque tous les ennemis
-                        player.Attack(enemies);  // Attaque normale (tous les ennemis)
-                    }
-                }
-                else if (choice == '2')
-                {
-                    Console.WriteLine($"{player.Name} lève son bouclier.");
-                }
-                else if (choice == '3')
-                {
-                    UsePotion(player, player.Inventory);
-                    actionValide = false;
-                }
-                else if (choice == '4')
-                {
-                    ChangeWeapon(player, availableWeapons);
-                }
-                else if (choice == '5')
-                {
-                    player.Inventory.ShowInventory();
-                    actionValide = false;
-                }
-                else if (choice == '6')
-                {
-                    UseSpecialAbility(player, enemies);
-                }
-                else
-                {
-                    Console.WriteLine("Touche invalide! Veuillez choisir une action valide.");
-                    actionValide = false;
-                }
+                // Gère l'action choisie par le joueur
+                ChooseAction(player, availableWeapons, choice);
 
                 if (player.SpecialAbilityCooldown > 0)
                 {
@@ -708,7 +569,10 @@ class Combat
                 // Vérification de la fin de la bataille
                 if (player.Health <= 0)
                 {
-                    Console.WriteLine($"{player.Name} a été vaincu !");
+                    Console.WriteLine($"{player.Name} a été vaincu, l'aventure s'arrête ici !");
+                    Console.WriteLine();
+                    Console.WriteLine($"Félicitations ! Vous êtes allé jusqu'à la vague {wave}.");
+                    Console.WriteLine();
                     break;
                 }
 
@@ -725,6 +589,7 @@ class Combat
                 {
                     player.HandleLuckPotionEffects(player);
                     Console.WriteLine("Tous les ennemis de la vague ont été vaincus!");
+                    Console.WriteLine();
                     break;
                 }
             }
@@ -825,7 +690,6 @@ class Combat
             int numTroll = 0;
 
             // Générer les Gobelins et les Trolls de manière alternée
-            // On va utiliser une boucle pour ajouter les ennemis selon la logique des vagues
             for (int i = 1; i <= wave; i++)
             {
                 if (i % 2 != 0) // Vagues impaires = Gobelins
@@ -884,7 +748,158 @@ class Combat
         };
     }
 
+    private void DisplayMenu(Character player)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"{player.Name} - Santé: {player.Health} | Niveau: {player.Level} | XP: {player.Experience}");
 
+        Console.WriteLine("Choisissez une action :");
+        Console.WriteLine("1. Attaquer");
+        Console.WriteLine("2. Lever le bouclier");
+        Console.WriteLine("3. Utiliser une potion");
+        Console.WriteLine("4. Changer d'arme");
+        Console.WriteLine("5. Afficher l'inventaire");
+        Console.WriteLine("6. Utiliser la capacité spéciale");
+        Console.WriteLine();
+    }
+
+    private void ChooseAction(Character player, List<Weapon> availableWeapons, char choice)
+    {        
+        Console.WriteLine();
+        bool actionValide = true;
+
+        if (choice == '1')  // Attaquer
+        {
+            if (player.EquippedWeapon.Name == "Lance")  // Si la lance est équipée
+            {
+                // Choisir un ennemi spécifique à attaquer
+                Console.WriteLine("Choisissez un ennemi à cibler :");
+                for (int i = 0; i < enemies.Count; i++)
+                {
+                    if (enemies[i].Health > 0) // N'afficher que les ennemis vivants
+                    {
+                        Console.WriteLine($"{i + 1}. {enemies[i].Name} (Santé: {enemies[i].Health})");
+                    }
+                }
+
+                // Lire la sélection de l'utilisateur
+                char enemyChoice = Console.ReadKey(true).KeyChar;
+                int enemyIndex = int.TryParse(enemyChoice.ToString(), out enemyIndex) ? enemyIndex - 1 : -1;
+
+                if (enemyIndex >= 0 && enemyIndex < enemies.Count && enemies[enemyIndex].Health > 0)
+                {
+                    // Si l'ennemi sélectionné est valide et vivant, attaque cet ennemi
+                    Character targetEnemy = enemies[enemyIndex];
+                    player.Attack(enemies, targetEnemy);  // Attaque ciblée sur un seul ennemi
+                }
+                else
+                {
+                    Console.WriteLine("Choix invalide ou ennemi déjà mort.");
+                    actionValide = false;  // Si l'ennemi est invalide, on empêche l'action
+                }
+            }
+            else if (player.EquippedWeapon.Name == "Épée")
+            {
+                Random rand = new Random();
+                int enemiesToHit = rand.Next(1, Math.Min(4, enemies.Count + 1));  // Choisit entre 1 et 3 ennemis, ou moins si moins d'ennemis sont présents
+
+                List<Character> enemiesHit = new List<Character>();
+
+                for (int i = 0; i < enemiesToHit; i++)
+                {
+                    // Choisir un ennemi aléatoire qui n'a pas encore été touché
+                    Character enemy = enemies[rand.Next(enemies.Count)];
+                    if (!enemiesHit.Contains(enemy) && enemy.Health > 0)
+                    {
+                        enemiesHit.Add(enemy);
+                        int damage = rand.Next(5, 15);
+                        Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
+                        enemy.TakeDamage(damage);
+                    }
+                }
+            }
+            else if (player.EquippedWeapon.Name == "Espadon")
+            {
+                Random rand = new Random();
+
+                // Vérifier si tous les ennemis sont étourdis
+                bool allEnemiesStunned = enemies.All(e => e.IsStunned);
+
+                if (allEnemiesStunned)
+                {
+                    Console.WriteLine($"Tous les ennemis sont étourdis ! L'attaque avec {player.EquippedWeapon.Name} touche obligatoirement tous les ennemis !");
+                    foreach (var enemy in enemies)
+                    {
+                        if (enemy.Health > 0)
+                        {
+                            int damage = rand.Next(12, 25);  // Dégâts élevés pour l'espadon
+                            Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
+                            enemy.TakeDamage(damage);
+                        }
+                    }
+                }
+                else
+                {
+                    // Vérifier si au moins un ennemi a été bloqué
+                    bool enemyBlocked = enemies.Any(e => e.IsStunned || player.IsShielding);
+
+                    // Ajuster les chances d'interruption
+                    double interruptionChance = enemyBlocked ? 0.2 : 0.5; // 20% si un ennemi est bloqué, sinon 50%
+
+                    if (rand.NextDouble() < interruptionChance)
+                    {
+                        Console.WriteLine($"{player.Name} a été interrompu, les ennemis attaquent !");
+                        // Ici, les ennemis peuvent attaquer normalement
+                    }
+                    else
+                    {
+                        foreach (var enemy in enemies)
+                        {
+                            if (enemy.Health > 0)  // Vérifier que l'ennemi est en vie
+                            {
+                                int damage = rand.Next(12, 25);  // Dégâts élevés pour l'espadon
+                                Console.WriteLine($"{player.Name} attaque avec {player.EquippedWeapon.Name} et inflige {damage} points de dégâts.");
+                                enemy.TakeDamage(damage);
+                            }
+                        }
+                    }
+                }
+            }
+
+            else
+            {
+                // Si l'arme équipée n'est pas la lance, attaque tous les ennemis
+                player.Attack(enemies);  // Attaque normale (tous les ennemis)
+            }
+        }
+        else if (choice == '2')
+        {
+            Console.WriteLine($"{player.Name} lève son bouclier.");
+        }
+        else if (choice == '3')
+        {
+            UsePotion(player, player.Inventory);
+            actionValide = false;
+        }
+        else if (choice == '4')
+        {
+            ChangeWeapon(player, availableWeapons);
+        }
+        else if (choice == '5')
+        {
+            player.Inventory.ShowInventory();
+            actionValide = false;
+        }
+        else if (choice == '6')
+        {
+            UseSpecialAbility(player, enemies);
+        }
+        else
+        {
+            Console.WriteLine("Touche invalide! Veuillez choisir une action valide.");
+            actionValide = false;
+        }
+    }
 
     #region Méthode inutilisée
     //public void PerformAttack(Character player, List<Character> enemies)
