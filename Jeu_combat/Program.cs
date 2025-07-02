@@ -132,7 +132,8 @@ namespace JeuSurvieConsole
                     Console.ReadKey(true);
                 }
 
-                player.UpdateBuffs();
+                if (playerActed && currentEnemy.IsAlive)
+                    player.UpdateBuffs();
 
                 if (!currentEnemy.IsAlive)
                 {
@@ -194,7 +195,7 @@ namespace JeuSurvieConsole
                     break;
                 case SpecialAttackType.StunningBlow:
                     Name = "Coup Étourdisant";
-                    Description = "Inflige des dégâts et étourdit l'ennemi pendant 3 tours.";
+                    Description = "Inflige des dégâts et étourdit l'ennemi pendant 3 tours (sauf les boss).";
                     break;
             }
         }
@@ -235,7 +236,10 @@ namespace JeuSurvieConsole
         private void StunningBlow(Player player, Enemy enemy)
         {
             int dmg = player.TotalAttack();
-            Console.WriteLine($"Coup Étourdisant ! {enemy.Name} reçoit {dmg} dégâts et est étourdi pendant 3 tours !");
+            if (enemy.IsBoss)
+                Console.WriteLine($"Coup Étourdisant ! {enemy.Name} reçoit {dmg} dégâts, mais ne peut pas être étourdi !");
+            else
+                Console.WriteLine($"Coup Étourdisant ! {enemy.Name} reçoit {dmg} dégâts et est étourdi pendant 3 tours !");
             enemy.TakeDamage(dmg);
             enemy.StunTurns = 3;
         }
@@ -363,7 +367,7 @@ namespace JeuSurvieConsole
             Console.WriteLine("🛡️ Vous vous protégez avec votre bouclier !");
             int chance = 30;
             int roll = new Random().Next(100);
-            if (roll < chance)
+            if (roll < chance && !enemy.IsBoss)
             {
                 enemy.StunTurns = 2;
                 Console.WriteLine($"✨ Vous avez étourdi {enemy.Name} !");
@@ -545,9 +549,9 @@ namespace JeuSurvieConsole
         public bool IsAlive => Health > 0;
         protected Random random = new Random();
         public bool IsBoss { get; set; } = false;
-        public int PhaseTurnCounter { get; set; } = 0;
-        public int ActivePhaseTurns { get; set; } = 3;
-        public int RestPhaseTurns { get; set; } = 1;
+        private int attackTurnsRemaining;
+        private int restTurnsRemaining;
+        private bool isResting;
         public List<EnemyAttack> Attacks { get; set; } = new();
 
 
@@ -563,6 +567,13 @@ namespace JeuSurvieConsole
 
             // Génération des récompenses
             GenerateLoot();
+
+            if (IsBoss)
+            {
+                attackTurnsRemaining = random.Next(1, 6); // 1 à 5 attaques
+                restTurnsRemaining = 0;
+                isResting = false;
+            }
         }
 
         public virtual void Attack(Player player)
@@ -608,21 +619,40 @@ namespace JeuSurvieConsole
 
         public void Act(Player player)
         {
+            if (StunTurns > 0)
+            {
+                Console.WriteLine($"{Name} est étourdi et ne peut pas attaquer !");
+                StunTurns--;
+                return;
+            }
+
             if (IsBoss)
             {
-                PhaseTurnCounter++;
+                if (isResting)
+                {
+                    if (restTurnsRemaining > 0)
+                    {
+                        if (restTurnsRemaining == 2 || restTurnsRemaining == 3)
+                            Console.WriteLine($"😮 {Name} se repose.");
+                        else
+                            Console.WriteLine($"😮 {Name} se repose encore.");
+                        restTurnsRemaining--;
+                        return;
+                    }
+                    else
+                    {
+                        isResting = false;
+                        attackTurnsRemaining = random.Next(1, 6); // 1 à 5 attaques
+                    }
+                }
 
-                if (PhaseTurnCounter <= ActivePhaseTurns)
+                PerformRandomAttack(player);
+                attackTurnsRemaining--;
+
+                if (attackTurnsRemaining <= 0)
                 {
-                    PerformRandomAttack(player);
-                }
-                else if (PhaseTurnCounter <= ActivePhaseTurns + RestPhaseTurns)
-                {
-                    Console.WriteLine($"😮 {Name} semble reprendre son souffle... Il ne fait rien ce tour.");
-                }
-                else
-                {
-                    PhaseTurnCounter = 0;
+                    isResting = true;
+                    restTurnsRemaining = random.Next(1, 4); // Repos de 1 à 3 tours
                 }
             }
             else
