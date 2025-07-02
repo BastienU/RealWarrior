@@ -71,7 +71,8 @@ namespace JeuSurvieConsole
 
                 Console.Clear();
                 Console.WriteLine("\n\n💀 Vous êtes mort !\n");
-                Console.WriteLine("Souhaitez-vous rejouer ? (O/N)");
+                Console.WriteLine("Fécilications ! Vous êtes allé jusqu'à la vague " + waveNumber);
+                Console.WriteLine("\nSouhaitez-vous rejouer ? (O/N)");
                 var key = Console.ReadKey(true).Key;
                 if (key != ConsoleKey.O) break;
             }
@@ -835,7 +836,7 @@ namespace JeuSurvieConsole
                 {
                     SpecialAttack special = new SpecialAttack(specialForSaleThisVisit.Value);
                     string label = $"Capacité spéciale : {special.Name} ({special.Description})";
-                    int price = 20;
+                    int price = 50;
                     var specialType = specialForSaleThisVisit.Value;
                     Action<Player> grant = p =>
                     {
