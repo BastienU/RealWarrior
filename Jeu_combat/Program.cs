@@ -128,8 +128,16 @@ namespace JeuSurvieConsole
 
                 if (playerActed && currentEnemy.IsAlive)
                 {
-                    currentEnemy.Act(player);
-                    Console.ReadKey(true);
+                    if (!currentEnemy.HasAlreadyActedThisTurn)
+                    {
+                        currentEnemy.Act(player);
+                        Console.ReadKey(true);
+                    }
+                    else
+                    {
+                        currentEnemy.HasAlreadyActedThisTurn = false;
+                        Console.ReadKey(true);
+                    }
                 }
 
                 if (playerActed && currentEnemy.IsAlive)
@@ -315,8 +323,70 @@ namespace JeuSurvieConsole
         public void Attack(Enemy enemy)
         {
             int dmg = TotalAttack();
-            Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
-            enemy.TakeDamage(dmg);
+
+            if (enemy.StunTurns > 0)
+            {
+                Console.WriteLine($"{enemy.Name} est étourdi et ne peut pas esquiver !");
+                Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
+                enemy.TakeDamage(dmg);
+                return;
+            }
+
+            double dodgeChance = 0.2;
+            bool enemyDodged = new Random().NextDouble() < dodgeChance;
+
+            if (enemyDodged)
+            {
+                double counterAttackChance = 0.5;
+                bool enemyCounterAttacks = new Random().NextDouble() < counterAttackChance;
+
+                if (enemyCounterAttacks)
+                {
+                    Console.WriteLine($"{enemy.Name} contre-attaque !");
+
+                    // Mini-jeu d'esquive AVANT que l'ennemi inflige des dégâts
+                    if (QuickPressMiniGame("🌀 Esquive la contre-attaque !", 3000, out _))
+                    {
+                        Console.WriteLine("💨 Vous esquivez la contre-attaque avec succès !");
+                        enemy.HasAlreadyActedThisTurn = true;
+
+                        // Mini-jeu de contre-attaque
+                        if (QuickPressMiniGame("⚔️ Contre-attaque !", 1500, out _))
+                        {
+                            int counterDmgMultiplier = CurrentWeapon.Name.ToLower() switch
+                            {
+                                "espadon" => 3,
+                                "épée" => 5,
+                                "lance" => 7,
+                                _ => 2,
+                            };
+
+                            int counterDmg = TotalAttack() * counterDmgMultiplier;
+                            Console.WriteLine($"⚡ Contre-attaque réussie ! Vous infligez {counterDmg} dégâts à {enemy.Name} !");
+                            enemy.TakeDamage(counterDmg);
+                        }
+                        else
+                        {
+                            Console.WriteLine("❌ Vous avez raté la contre-attaque.");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("❌ Vous avez raté l'esquive !");
+                        enemy.Attack(this);
+                        enemy.HasAlreadyActedThisTurn = true;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"{enemy.Name} esquive votre attaque.");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
+                enemy.TakeDamage(dmg);
+            }
         }
 
         public bool UseSpecialAttack(Enemy enemy)
@@ -519,6 +589,39 @@ namespace JeuSurvieConsole
             Health = MaxHealth;
         }
 
+        // Méthode pour le mini-jeu pour l'esquive et la contre attaque.
+        private bool QuickPressMiniGame(string promptMessage, int timeLimitMs, out ConsoleKey expectedKey)
+        {
+            var random = new Random();
+            // Génère une lettre majuscule aléatoire
+            char keyChar = (char)random.Next('A', 'Z' + 1);
+            expectedKey = (ConsoleKey)Enum.Parse(typeof(ConsoleKey), keyChar.ToString());
+
+            Console.WriteLine($"{promptMessage} Presse la touche '{keyChar}' dans les {timeLimitMs / 1000.0:F1} secondes !");
+
+            DateTime startTime = DateTime.Now;
+            while ((DateTime.Now - startTime).TotalMilliseconds < timeLimitMs)
+            {
+                if (Console.KeyAvailable)
+                {
+                    var keyInfo = Console.ReadKey(true);
+                    if (keyInfo.Key == expectedKey)
+                    {
+                        Console.WriteLine("✔️ Succès !");
+                        return true;
+                    }
+                    else
+                    {
+                        Console.WriteLine("❌ Mauvaise touche.");
+                        return false;
+                    }
+                }
+            }
+
+            Console.WriteLine("⏰ Trop lent !");
+            return false;
+        }
+
     }
 
 
@@ -551,6 +654,7 @@ namespace JeuSurvieConsole
         public bool IsBoss { get; set; } = false;
         private int attackTurnsRemaining;
         private int restTurnsRemaining;
+        public bool HasAlreadyActedThisTurn { get; set; }
         private bool isResting;
         public List<EnemyAttack> Attacks { get; set; } = new();
 
