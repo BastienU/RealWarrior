@@ -22,6 +22,7 @@ namespace JeuSurvieConsole
         Random random = new Random();
         Merchant merchant = new Merchant();
 
+
         public void Start()
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -64,6 +65,11 @@ namespace JeuSurvieConsole
                     if (waveNumber % 5 == 0 && waveNumber != 10)
                     {
                         merchant.ShowShop(player);
+                        if (random.NextDouble() < 0.5)
+                        {
+                            var darkMage = new DarkMage();
+                            darkMage.OfferSpell(player);
+                        }
                     }
 
                     waveNumber++;
@@ -124,6 +130,34 @@ namespace JeuSurvieConsole
                     case ConsoleKey.D7:
                         playerActed = player.UseSpecialAttack(currentEnemy);
                         break;
+                    case ConsoleKey.D8:
+                        if (player.LearnedSpells.Count == 0)
+                        {
+                            Console.WriteLine("❌ Vous ne connaissez aucun sort.");
+                            Console.ReadKey(true);
+                            break;
+                        }
+                        Console.Write("🔮 Entrez la formule magique : ");
+                        var formula = Console.ReadLine()?.Trim().ToLower();
+                        var spell = player.LearnedSpells.FirstOrDefault(s => s.Formula == formula);
+
+                        if (spell != null)
+                        {
+                            if (player.SpendEssence(spell.EssenceCost))
+                            {
+                                Console.WriteLine($"✨ Vous lancez {spell.Name} !");
+                                spell.Effect(player, currentEnemy);
+                                playerActed = true;
+                            }
+                            Console.ReadKey(true);
+                        }
+                        else
+                        {
+                            Console.WriteLine("❌ Formule incorrecte ou sort inconnu.");
+                            Console.ReadKey(true);
+                        }
+                        break;
+
                 }
 
                 if (playerActed && currentEnemy.IsAlive)
@@ -163,12 +197,16 @@ namespace JeuSurvieConsole
 
         void DrawUI()
         {
+            string extra = player.LearnedSpells.Count > 0 ? "  [8] Sort" : "";
+
             Console.Clear();
             Console.WriteLine($"========== VAGUE {waveNumber} ==========");
             Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel}");
+            if (player.MagicUnlocked)
+                Console.WriteLine($"🔮 Essence : {player.Essence}/{player.MaxEssence}");
             Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4\n");
             Console.WriteLine($"🦾 Ennemi : {currentEnemy.Name} - PV : {currentEnemy.Health}/{currentEnemy.MaxHealth}\n");
-            Console.WriteLine("[1] Attaquer  [2] Se défendre  [3] Changer d'arme  [4] Potion  [5] Inventaire  [6] Passer  [7] Capacité spéciale\n");
+            Console.WriteLine("[1] Attaquer  [2] Se défendre  [3] Changer d'arme  [4] Potion  [5] Inventaire  [6] Passer  [7] Capacité spéciale" + extra + "\n");
         }
     }
 
@@ -244,12 +282,17 @@ namespace JeuSurvieConsole
         private void StunningBlow(Player player, Enemy enemy)
         {
             int dmg = player.TotalAttack();
-            if (enemy.IsBoss)
-                Console.WriteLine($"Coup Étourdisant ! {enemy.Name} reçoit {dmg} dégâts, mais ne peut pas être étourdi !");
-            else
-                Console.WriteLine($"Coup Étourdisant ! {enemy.Name} reçoit {dmg} dégâts et est étourdi pendant 3 tours !");
             enemy.TakeDamage(dmg);
-            enemy.StunTurns = 3;
+
+            if (enemy.IsBoss)
+            {
+                Console.WriteLine($"Coup Étourdisant ! {enemy.Name} reçoit {dmg} dégâts, mais résiste à l'étourdissement !");
+            }
+            else
+            {
+                enemy.StunTurns = 3;
+                Console.WriteLine($"Coup Étourdisant ! {enemy.Name} est étourdi pendant 3 tours !");
+            }
         }
     }
 
@@ -257,7 +300,7 @@ namespace JeuSurvieConsole
 
     class Player
     {
-        private int health;  // champ privé pour Health
+        private int health;
         private int maxHealth;
 
         public int Health
@@ -293,6 +336,11 @@ namespace JeuSurvieConsole
         public int Gold = 0;
         public List<SpecialAttack> SpecialAttacks = new List<SpecialAttack>();
         public int SpecialCooldown = 0;
+        public int Essence { get; private set; } = 0;
+        public int MaxEssence { get; private set; } = 100;
+        public List<Spell> LearnedSpells { get; } = new();
+        public bool MagicUnlocked => LearnedSpells.Count > 0;
+        public int ObsidianShieldTurns { get; set; } = 0;
 
         public Player()
         {
@@ -329,6 +377,9 @@ namespace JeuSurvieConsole
                 Console.WriteLine($"{enemy.Name} est étourdi et ne peut pas esquiver !");
                 Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
                 enemy.TakeDamage(dmg);
+                GainEssence(5);
+                if (!enemy.IsAlive)
+                    GainEssence(10);
                 return;
             }
 
@@ -368,6 +419,7 @@ namespace JeuSurvieConsole
                         else
                         {
                             Console.WriteLine("❌ Vous avez raté la contre-attaque.");
+                            Console.ReadKey(true);
                         }
                     }
                     else
@@ -375,6 +427,7 @@ namespace JeuSurvieConsole
                         Console.WriteLine("❌ Vous avez raté l'esquive !");
                         enemy.Attack(this);
                         enemy.HasAlreadyActedThisTurn = true;
+                        Console.ReadKey(true);
                     }
                 }
                 else
@@ -386,6 +439,9 @@ namespace JeuSurvieConsole
             {
                 Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
                 enemy.TakeDamage(dmg);
+                GainEssence(5);
+                if (!enemy.IsAlive)
+                    GainEssence(10);
             }
         }
 
@@ -394,12 +450,14 @@ namespace JeuSurvieConsole
             if (SpecialAttacks.Count == 0)
             {
                 Console.WriteLine("❌ Vous ne possédez aucune capacité spéciale.");
+                Console.ReadKey(true);
                 return false;
             }
 
             if (SpecialCooldown > 0)
             {
                 Console.WriteLine($"⏳ Capacité spéciale indisponible. (Recharge : {SpecialCooldown} attaques restantes)");
+                Console.ReadKey(true);
                 return false;
             }
 
@@ -422,6 +480,7 @@ namespace JeuSurvieConsole
                 else
                 {
                     Console.WriteLine("Choix invalide. Tour perdu...");
+                    Console.ReadKey(true);
                     return false;
                 }
             }
@@ -440,39 +499,70 @@ namespace JeuSurvieConsole
             if (roll < chance && !enemy.IsBoss)
             {
                 enemy.StunTurns = 2;
-                Console.WriteLine($"✨ Vous avez étourdi {enemy.Name} !");
+                Console.WriteLine($"✨ {enemy.Name} est étourdi !");
             }
         }
 
         public void ChangeWeapon()
         {
-            Console.Clear();
-            Console.WriteLine("Choisissez une arme :");
-            for (int i = 0; i < Weapons.Count; i++)
-                Console.WriteLine($"[{i}] {Weapons[i].Name} (Dégâts : {Weapons[i].BaseDamage})");
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("Choisissez une arme :");
+                Console.WriteLine("[0] Annuler");
 
-            if (int.TryParse(Console.ReadKey(true).KeyChar.ToString(), out int index) && index >= 0 && index < Weapons.Count)
-                CurrentWeapon = Weapons[index];
+                for (int i = 0; i < Weapons.Count; i++)
+                    Console.WriteLine($"[{i + 1}] {Weapons[i].Name}  (Dégâts : {Weapons[i].BaseDamage})");
+
+                var key = Console.ReadKey(true).KeyChar;
+
+                if (key == '0')
+                    return;
+
+                if (int.TryParse(key.ToString(), out int idx) &&
+                    idx >= 1 && idx <= Weapons.Count)
+                {
+                    CurrentWeapon = Weapons[idx - 1];
+                    return;
+                }
+
+                Console.WriteLine("❌ Choix invalide. Appuyez sur une touche...");
+                Console.ReadKey(true);
+            }
         }
 
         public void ChoosePotion()
         {
-            Console.Clear();
-            Console.WriteLine("Quelle potion utiliser ?");
-            int i = 1;
-            Dictionary<int, PotionType> mapping = new Dictionary<int, PotionType>();
-            foreach (var kv in Inventory)
+            while (true)
             {
-                Console.WriteLine($"[{i}] {kv.Key} : {kv.Value}");
-                mapping[i] = kv.Key;
-                i++;
+                Console.Clear();
+                Console.WriteLine("Quelle potion utiliser ?");
+                Console.WriteLine("[0] Annuler");
+
+                int n = 1;
+                var map = new Dictionary<int, PotionType>();
+                foreach (var kv in Inventory)
+                {
+                    Console.WriteLine($"[{n}] {kv.Key} : {kv.Value}");
+                    map[n] = kv.Key;
+                    n++;
+                }
+
+                var key = Console.ReadKey(true).KeyChar;
+
+                if (key == '0')
+                    return;
+
+                if (int.TryParse(key.ToString(), out int choice) && map.ContainsKey(choice))
+                {
+                    UsePotion(map[choice]);
+                    Console.ReadKey(true);
+                    return;
+                }
+
+                Console.WriteLine("❌ Choix invalide. Appuyez sur une touche...");
+                Console.ReadKey(true);
             }
-            var key = Console.ReadKey(true).KeyChar.ToString();
-            if (int.TryParse(key, out int choice) && mapping.ContainsKey(choice))
-                UsePotion(mapping[choice]);
-            else
-                Console.WriteLine("Choix invalide.");
-            Console.ReadKey(true);
         }
 
         public void UsePotion(PotionType type)
@@ -525,6 +615,9 @@ namespace JeuSurvieConsole
 
             if (LuckBuffTurns > 0)
                 buffs.Add($"Chance accrue ({LuckBuffTurns} tour{(LuckBuffTurns > 1 ? "s" : "")})");
+            if (ObsidianShieldTurns > 0)
+                buffs.Add($"Mur d'obsidienne ({ObsidianShieldTurns})");
+
 
             return buffs.Count > 0 ? string.Join(", ", buffs) : "Aucun";
         }
@@ -534,16 +627,23 @@ namespace JeuSurvieConsole
             if (DamageBuffTurns > 0) DamageBuffTurns--;
             if (LuckBuffTurns > 0) LuckBuffTurns--;
             if (SpecialAttackDamageBuffTurns > 0) SpecialAttackDamageBuffTurns--;
+            if (ObsidianShieldTurns > 0) ObsidianShieldTurns--;
 
             IsDefending = false;
         }
 
         public void TakeDamage(int amount)
         {
-            if (IsDefending)
+            if (ObsidianShieldTurns > 0)
+            {
+                int reduced = amount / 3;
+                Console.WriteLine("🛡️ Mur d’obsidienne absorbe 66% des dégâts !");
+                amount = reduced;
+            }
+            else if (IsDefending)
             {
                 int reduced = amount / 2;
-                Console.WriteLine("🛡️ Vous bloquez avec votre bouclier ! Dégâts réduits de moitié !");
+                Console.WriteLine("🛡️ Vous bloquez l'attaque avec votre bouclier !");
                 amount = reduced;
             }
 
@@ -552,6 +652,7 @@ namespace JeuSurvieConsole
 
             Console.WriteLine($"💥 Vous subissez {amount} dégâts ! PV restants : {Health}");
 
+            // Le bouclier classique disparait après utilisation
             IsDefending = false;
         }
 
@@ -589,6 +690,14 @@ namespace JeuSurvieConsole
             Health = MaxHealth;
         }
 
+        public void ModifyMaxHealth(int delta)
+        {
+            MaxHealth += delta;
+            if (MaxHealth < 1) MaxHealth = 1;
+            if (Health > MaxHealth) Health = MaxHealth;
+        }
+
+
         // Méthode pour le mini-jeu pour l'esquive et la contre attaque.
         private bool QuickPressMiniGame(string promptMessage, int timeLimitMs, out ConsoleKey expectedKey)
         {
@@ -620,6 +729,43 @@ namespace JeuSurvieConsole
 
             Console.WriteLine("⏰ Trop lent !");
             return false;
+        }
+
+        public void LearnSpell(Spell s)
+        {
+            if (!LearnedSpells.Any(ls => ls.Formula == s.Formula))
+            {
+                LearnedSpells.Add(s);
+                if (LearnedSpells.Count == 1)
+                {
+                    Essence = MaxEssence;
+                    Console.WriteLine("✨ Vous sentez l'Essence affluer en vous !");
+                }
+            }
+        }
+
+        public void GainEssence(int amount)
+        {
+            if (!MagicUnlocked) return;
+            Essence = Math.Min(MaxEssence, Essence + amount);
+            Console.WriteLine($"🔮 +{amount} Essence  ({Essence}/{MaxEssence})");
+        }
+
+        public bool SpendEssence(int amount)
+        {
+            if (Essence >= amount)
+            {
+                Essence -= amount;
+                return true;
+            }
+            Console.WriteLine("❌ Pas assez d'Essence !");
+            return false;
+        }
+
+        public void Heal(int amount)
+        {
+            Health = Math.Min(MaxHealth, Health + amount);
+            Console.WriteLine($"💚 Vous récupérez {amount} PV (PV : {Health}/{MaxHealth})");
         }
 
     }
@@ -1068,58 +1214,156 @@ namespace JeuSurvieConsole
                 for (int i = 0; i < player.Weapons.Count; i++)
                 {
                     var weapon = player.Weapons[i];
-                    int currentDamage = weapon.BaseDamage + (weapon.Level * 5);
-                    int nextDamage = weapon.BaseDamage + ((weapon.Level + 1) * 5);
+                    int currentDmg = weapon.BaseDamage + (weapon.Level * 5);
+                    int nextDmg = weapon.BaseDamage + ((weapon.Level + 1) * 5);
                     int upgradeCost = 50 + (weapon.Level * 30);
 
-                    string upgradeInfo = weapon.Level < Weapon.MaxLevel
-                        ? $"→ {nextDamage} après amélioration"
+                    string info = weapon.Level < Weapon.MaxLevel
+                        ? $"→ {nextDmg} après amélioration"
                         : "(niveau max atteint)";
 
-                    Console.WriteLine($"[{i + 1}] {weapon.Name} (Niv {weapon.Level}) - Dégâts : {currentDamage} {upgradeInfo} - 💰 {upgradeCost}");
+                    Console.WriteLine($"[{i + 1}] {weapon.Name} (Niv {weapon.Level}) - Dégâts : {currentDmg} {info} - 💰 {upgradeCost}");
                 }
 
                 Console.WriteLine("\n[0] Quitter le forgeron");
-
                 Console.Write("\nVotre choix : ");
-                var input = Console.ReadKey(true).KeyChar;
+                string input = Console.ReadLine();          // ← LECTURE AU CLAVIER + Entrée
 
-                if (input == '0')
+                if (input == "0")
                     break;
 
-                if (int.TryParse(input.ToString(), out int choice) && choice >= 1 && choice <= player.Weapons.Count)
+                if (int.TryParse(input, out int choice) &&
+                    choice >= 1 && choice <= player.Weapons.Count)
                 {
                     var weapon = player.Weapons[choice - 1];
 
                     if (weapon.Level >= Weapon.MaxLevel)
                     {
                         Console.WriteLine("⚠️ Cette arme est déjà au niveau maximum !");
-                        Console.WriteLine("Appuyez sur une touche pour continuer...");
-                        Console.ReadKey(true);
-                        continue;
-                    }
-
-                    int upgradeCost = 50 + (weapon.Level * 30);
-
-                    if (player.Gold >= upgradeCost)
-                    {
-                        player.Gold -= upgradeCost;
-                        weapon.Level++;
-                        Console.WriteLine($"✅ {weapon.Name} améliorée au niveau {weapon.Level} !");
                     }
                     else
                     {
-                        Console.WriteLine("❌ Pas assez d’or pour cette amélioration !");
+                        int upgradeCost = 50 + (weapon.Level * 30);
+                        if (player.Gold >= upgradeCost)
+                        {
+                            player.Gold -= upgradeCost;
+                            weapon.Level++;
+                            Console.WriteLine($"✅ {weapon.Name} améliorée au niveau {weapon.Level} !");
+                        }
+                        else
+                        {
+                            Console.WriteLine("❌ Pas assez d’or pour cette amélioration !");
+                        }
                     }
                 }
                 else
                 {
                     Console.WriteLine("❌ Choix invalide.");
                 }
-
-                Console.WriteLine("Appuyez sur une touche pour continuer...");
                 Console.ReadKey(true);
             }
+        }
+    }
+
+    class Spell
+    {
+        public string Name { get; }
+        public string Formula { get; }
+        public string Description { get; }
+        public int EssenceCost { get; }
+        public Action<Player, Enemy> Effect { get; }
+
+        public Spell(string name, string hardcodedFormulaOrNull, string description,
+                     int cost, Action<Player, Enemy> effect)
+        {
+            Name = name;
+            Formula = (hardcodedFormulaOrNull ?? GenerateFormula()).ToLower();
+            Description = description;
+            EssenceCost = cost;
+            Effect = effect;
+        }
+
+        private static string GenerateFormula()
+        {
+            var rng = new Random();
+            int len = rng.Next(5, 9);
+            char[] ch = new char[len];
+            for (int i = 0; i < len; i++)
+                ch[i] = (char)rng.Next('a', 'z' + 1);
+            return new string(ch);
+        }
+    }
+
+    class DarkMage
+    {
+        private static Random rng = new();
+
+        private static List<Spell> MasterSpells = new()
+    {
+        new Spell("Vol de vie interdit", null,
+            "Inflige 60 dégâts et rend 100 PV — coût : 90 Essence",
+            90,
+            (pl, en) =>
+            {
+                en.TakeDamage(60);
+                pl.Heal(100);
+                Console.WriteLine("🩸 Vous drainez l'énergie vitale de l'ennemi !");
+            }),
+
+        new Spell("Mur d’obsidienne", null,
+            "Réduit de 66 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
+            60,
+            (pl, en) =>
+            {
+                pl.ObsidianShieldTurns = 3;
+                pl.IsDefending = false;
+                Console.WriteLine("🛡️ Une barrière d'obsidienne vous protège !");
+            }),
+
+        new Spell("Brisure d’arme", null,
+            "Désarme l'ennemi et réduit ses dégâts de 30 % — coût : 60 Essence",
+            60,
+            (pl, en) =>
+            {
+                en.AttackPower = (int)(en.AttackPower * 0.7);
+                Console.WriteLine($"🗡️ {en.Name} est désarmé !");
+            })
+    };
+
+        public void OfferSpell(Player p)
+        {
+            // Spells que le joueur ne connaît pas encore
+            var unknown = MasterSpells
+                .Where(sp => !p.LearnedSpells.Any(ls => ls.Formula == sp.Formula))
+                .ToList();
+
+            if (unknown.Count == 0)
+            {
+                Console.WriteLine("Le mage noir n'a plus rien à vous enseigner...");
+                Console.ReadKey(true);
+                return;
+            }
+
+            var spell = unknown[rng.Next(unknown.Count)];
+
+            Console.WriteLine("🌑 Un mage noir vous tend un grimoire :");
+            Console.WriteLine($"   « {spell.Name} »  —  {spell.Description}");
+            Console.Write("Apprendre ce sort ? (O/N) ");
+
+            if (Console.ReadKey(true).Key == ConsoleKey.O)
+            {
+                // ←─ utilisation de la méthode utilitaire
+                p.LearnSpell(spell);
+
+                // On révèle la formule une seule fois
+                Console.WriteLine($"   Formule secrète : {spell.Formula.ToUpper()}");
+            }
+            else
+            {
+                Console.WriteLine("Vous déclinez l'offre sinistre.");
+            }
+
+            Console.ReadKey(true);
         }
     }
 
