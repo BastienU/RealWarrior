@@ -383,8 +383,9 @@ namespace JeuSurvieConsole
                 return;
             }
 
+            bool canDodge = !enemy.IsResting;
             double dodgeChance = 0.2;
-            bool enemyDodged = new Random().NextDouble() < dodgeChance;
+            bool enemyDodged = canDodge && new Random().NextDouble() < dodgeChance;
 
             if (enemyDodged)
             {
@@ -415,6 +416,9 @@ namespace JeuSurvieConsole
                             int counterDmg = TotalAttack() * counterDmgMultiplier;
                             Console.WriteLine($"⚡ Contre-attaque réussie ! Vous infligez {counterDmg} dégâts à {enemy.Name} !");
                             enemy.TakeDamage(counterDmg);
+                            GainEssence(5);
+                            if (!enemy.IsAlive)
+                                GainEssence(10);
                         }
                         else
                         {
@@ -464,6 +468,9 @@ namespace JeuSurvieConsole
             if (SpecialAttacks.Count == 1)
             {
                 SpecialAttacks[0].Execute(this, enemy);
+                GainEssence(5);
+                if (!enemy.IsAlive)
+                    GainEssence(10);
             }
             else
             {
@@ -476,6 +483,9 @@ namespace JeuSurvieConsole
                 if (int.TryParse(input, out int choice) && choice >= 1 && choice <= SpecialAttacks.Count)
                 {
                     SpecialAttacks[choice - 1].Execute(this, enemy);
+                    GainEssence(5);
+                    if (!enemy.IsAlive)
+                        GainEssence(10);
                 }
                 else
                 {
@@ -802,6 +812,7 @@ namespace JeuSurvieConsole
         private int restTurnsRemaining;
         public bool HasAlreadyActedThisTurn { get; set; }
         private bool isResting;
+        public bool IsResting => isResting;
         public List<EnemyAttack> Attacks { get; set; } = new();
 
 
