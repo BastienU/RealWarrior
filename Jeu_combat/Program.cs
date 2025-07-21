@@ -20,7 +20,7 @@ namespace JeuSurvieConsole
         Enemy currentEnemy;
         int waveNumber;
         Random random = new Random();
-        Merchant merchant = new Merchant();
+        Merchant merchant;
 
 
         public void Start()
@@ -52,6 +52,7 @@ namespace JeuSurvieConsole
                     // Apparition du marchand toutes les 5 vagues, sauf à la vague 10 (boss)
                     if (waveNumber % 10 == 5)
                     {
+                        merchant = new Merchant(waveNumber);
                         merchant.ShowShop(player);
                         if (random.NextDouble() < 0.5)
                         {
@@ -1155,26 +1156,44 @@ namespace JeuSurvieConsole
 
     class Merchant
     {
-        private Dictionary<string, (int price, Action<Player>)> shopItems;
-        private Random random = new Random();
+        private class ShopItem
+        {
+            public string Label;
+            public int Price;
+            public int Stock;
+            public Action<Player> Action;
 
-        // Capacité proposée pour la session actuelle
+            public ShopItem(string label, int price, int stock, Action<Player> action)
+            {
+                Label = label;
+                Price = price;
+                Stock = stock;
+                Action = action;
+            }
+        }
+
+        private List<ShopItem> shopItems;
+        private Random random = new Random();
         private SpecialAttackType? specialForSaleThisVisit = null;
 
-        public Merchant()
+        public Merchant(int waveNumber)
         {
-            shopItems = new Dictionary<string, (int, Action<Player>)>
-        {
-            { "Potion de soin (+100 PV)", (5, p => p.Inventory[PotionType.Heal]++) },
-            { "Potion de dégâts (+20 dégâts x10 tours)", (10, p => p.Inventory[PotionType.Damage]++) },
-            { "Super potion de soin (+250 PV)", (20, p => p.Inventory[PotionType.SuperHeal]++) },
-            { "Augmentation PV max permanente (+200 PV)", (100, p => p.IncreaseMaxHealth(200)) },
-        };
+            int healStock = 20 + ((waveNumber >= 15) ? ((waveNumber - 5) / 10) * 10 : 0);
+            int damageStock = 5 + ((waveNumber >= 15) ? ((waveNumber - 5) / 10) * 5 : 0);
+            int superHealStock = 5 + ((waveNumber >= 15) ? ((waveNumber - 5) / 10) * 5 : 0);
+
+            shopItems = new List<ShopItem>
+            {
+                new ShopItem("Potion de soin (+100 PV)", 5, healStock, p => p.Inventory[PotionType.Heal]++),
+                new ShopItem("Potion de dégâts (+20 dégâts x10 tours)", 10, damageStock, p => p.Inventory[PotionType.Damage]++),
+                new ShopItem("Super potion de soin (+250 PV)", 20, superHealStock, p => p.Inventory[PotionType.SuperHeal]++),
+                new ShopItem("Augmentation PV max permanente (+200 PV)", 100, 1, p => p.IncreaseMaxHealth(200))
+            };
         }
+
 
         public void ShowShop(Player player)
         {
-            // Choisir une capacité spéciale une seule fois par visite
             if (specialForSaleThisVisit == null)
                 specialForSaleThisVisit = GetRandomSpecialAttackNotOwned(player);
 
@@ -1183,8 +1202,13 @@ namespace JeuSurvieConsole
                 Console.Clear();
                 Console.WriteLine("👺 Bienvenue chez le marchand ! Voici ce que vous pouvez acheter :");
 
-                List<(string label, int price, Action<Player> action)> offers = shopItems
-                    .Select(kv => (kv.Key, kv.Value.price, kv.Value.Item2))
+                // Générer toutes les offres disponibles
+                List<(string label, int price, Action<Player> action, ShopItem stockRef)> offers = shopItems
+                    .Select(item =>
+                    {
+                        string suffix = item.Stock > 0 ? $" (Stock: {item.Stock})" : " [Rupture de stock]";
+                        return ($"{item.Label}{suffix}", item.Price, item.Action, item);
+                    })
                     .ToList();
 
                 if (specialForSaleThisVisit != null)
@@ -1195,30 +1219,27 @@ namespace JeuSurvieConsole
                     var specialType = specialForSaleThisVisit.Value;
                     Action<Player> grant = p =>
                     {
-                        // Vérifie que le joueur ne possède pas déjà cette capacité
                         if (p.SpecialAttacks.Any(sp => sp.Type == specialType))
                         {
                             Console.WriteLine("❌ Vous possédez déjà cette capacité.");
                             return;
                         }
 
-                        // Ajoute la capacité
                         p.SpecialAttacks.Add(new SpecialAttack(specialType));
                         Console.WriteLine($"✨ Nouvelle capacité apprise : {special.Name} !");
-
-                        // On propose une nouvelle capacité s'il en reste
                         var next = GetRandomSpecialAttackNotOwned(p);
                         if (next == null)
                         {
                             Console.WriteLine("🧙‍♂️ Vous connaissez désormais toutes les capacités disponibles !");
-                            specialForSaleThisVisit = null; // Plus rien à vendre
+                            specialForSaleThisVisit = null;
                         }
                         else
                         {
-                            specialForSaleThisVisit = next; // Nouvelle capacité aléatoire
+                            specialForSaleThisVisit = next;
                         }
                     };
-                    offers.Add((label, price, grant));
+
+                    offers.Add((label, price, grant, null));
                 }
 
                 for (int i = 0; i < offers.Count; i++)
@@ -1232,7 +1253,6 @@ namespace JeuSurvieConsole
                 {
                     if (choice == 0)
                     {
-                        // On quitte le marchand, donc on réinitialisera la capacité à la prochaine visite
                         specialForSaleThisVisit = null;
                         return;
                     }
@@ -1240,15 +1260,108 @@ namespace JeuSurvieConsole
                     if (choice > 0 && choice <= offers.Count)
                     {
                         var selected = offers[choice - 1];
-                        if (player.Gold >= selected.price)
+                        var stockItem = selected.stockRef;
+
+                        // Si c’est un item avec du stock (exclut la capacité spéciale)
+                        if (stockItem != null)
                         {
-                            player.Gold -= selected.price;
-                            selected.action(player);
-                            Console.WriteLine($"✅ Vous avez acheté : {selected.label}");
+                            if (stockItem.Stock <= 0)
+                            {
+                                Console.WriteLine("❌ Cet article est en rupture de stock !");
+                            }
+                            else if (stockItem.Stock == 1 || stockItem.Label.StartsWith("Augmentation PV"))
+                            {
+                                // Achat unique obligatoire
+                                if (player.Gold >= selected.price)
+                                {
+                                    player.Gold -= selected.price;
+                                    selected.action(player);
+                                    stockItem.Stock--;
+                                    Console.WriteLine($"✅ Vous avez acheté : {stockItem.Label}");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("❌ Vous n’avez pas assez d’or !");
+                                }
+                            }
+                            else
+                            {
+                                // Achat 1 ou tout le stock
+                                Console.WriteLine($"\nSouhaitez-vous :");
+                                Console.WriteLine($"[1] Acheter 1 pour {stockItem.Price} or");
+                                Console.WriteLine($"[2] Acheter tout le stock ({stockItem.Stock}) pour {stockItem.Stock * stockItem.Price} or");
+                                Console.Write("Votre choix : ");
+                                var input = Console.ReadLine()?.Trim();
+
+                                if (input == "1")
+                                {
+                                    if (player.Gold >= stockItem.Price)
+                                    {
+                                        player.Gold -= stockItem.Price;
+                                        stockItem.Action(player);
+                                        stockItem.Stock--;
+                                        Console.WriteLine($"✅ Vous avez acheté 1 x {stockItem.Label}");
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("❌ Pas assez d’or !");
+                                    }
+                                }
+                                else if (input == "2")
+                                {
+                                    int total = stockItem.Stock * stockItem.Price;
+                                    if (player.Gold >= total)
+                                    {
+                                        player.Gold -= total;
+                                        for (int i = 0; i < stockItem.Stock; i++) stockItem.Action(player);
+                                        Console.WriteLine($"✅ Vous avez acheté tout le stock de {stockItem.Label} ({stockItem.Stock}) !");
+                                        stockItem.Stock = 0;
+                                    }
+                                    else
+                                    {
+                                        int maxQty = player.Gold / stockItem.Price;
+                                        if (maxQty == 0)
+                                        {
+                                            Console.WriteLine("❌ Vous n'avez pas assez d’or !");
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine($"\n❌ Pas assez d’or pour tout acheter.");
+                                            Console.WriteLine($"Souhaitez-vous acheter {maxQty} x {stockItem.Label} pour {maxQty * stockItem.Price} or ? (O/N)");
+                                            string confirm = Console.ReadLine()?.Trim().ToLower();
+                                            if (confirm == "o")
+                                            {
+                                                player.Gold -= maxQty * stockItem.Price;
+                                                for (int i = 0; i < maxQty; i++) stockItem.Action(player);
+                                                stockItem.Stock -= maxQty;
+                                                Console.WriteLine($"✅ Vous avez acheté {maxQty} x {stockItem.Label}");
+                                            }
+                                            else
+                                            {
+                                                Console.WriteLine("❌ Achat annulé.");
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine("❌ Choix invalide.");
+                                }
+                            }
                         }
                         else
                         {
-                            Console.WriteLine("❌ Vous n'avez pas assez d'or !");
+                            // Achat de la capacité spéciale
+                            if (player.Gold >= selected.price)
+                            {
+                                player.Gold -= selected.price;
+                                selected.action(player);
+                                Console.WriteLine($"✅ Vous avez acheté : {selected.label}");
+                            }
+                            else
+                            {
+                                Console.WriteLine("❌ Vous n'avez pas assez d'or !");
+                            }
                         }
                     }
                     else
