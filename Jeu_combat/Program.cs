@@ -179,14 +179,16 @@ namespace JeuSurvieConsole
 
                 if (!currentEnemy.IsAlive)
                 {
-                    int goldReward = random.Next(5, 31);
-                    player.GainGold(goldReward);
-                    Console.WriteLine($"💰 Vous récupérez {goldReward} pièces d’or !");
+                    int baseGold = random.Next(5, 31);
+                    int gainedGold = player.GainGoldWithPotion(baseGold);
 
+                    int gainedXP = 0;
                     if (currentEnemy.XPValue > 0)
                     {
-                        player.GainXP(currentEnemy.XPValue);
+                        gainedXP = player.GainXPWithPotion(currentEnemy.XPValue);
                     }
+
+                    Console.WriteLine($"\n🏆 Vous gagnez {gainedGold} pièces d’or et {gainedXP} points d’expérience !");
 
                     LootManager.DropPotion(player, currentEnemy, random);
                     Console.ReadKey(true);
@@ -205,6 +207,10 @@ namespace JeuSurvieConsole
             if (player.MagicUnlocked)
                 Console.WriteLine($"🔮 Essence : {player.Essence}/{player.MaxEssence}");
             Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4\n");
+            if (player.XPBoostKillsRemaining > 0)
+                Console.WriteLine($"📘 Potion d’XP active : encore {player.XPBoostKillsRemaining} ennemi(s) avec XP doublée !");
+            if (player.GoldBoostKillsRemaining > 0)
+                Console.WriteLine($"💰 Potion d’or active : encore {player.GoldBoostKillsRemaining} ennemi(s) avec or doublé !");
             Console.WriteLine($"🦾 Ennemi : {currentEnemy.Name} - PV : {currentEnemy.Health}/{currentEnemy.MaxHealth}\n");
             Console.WriteLine("[1] Attaquer  [2] Se défendre  [3] Changer d'arme  [4] Potion  [5] Inventaire  [6] Passer  [7] Capacité spéciale" + extra + "\n");
         }
@@ -341,6 +347,8 @@ namespace JeuSurvieConsole
         public List<Spell> LearnedSpells { get; } = new();
         public bool MagicUnlocked => LearnedSpells.Count > 0;
         public int ObsidianShieldTurns { get; set; } = 0;
+        public int XPBoostKillsRemaining = 0;
+        public int GoldBoostKillsRemaining { get; set; } = 0;
 
         public Player()
         {
@@ -541,6 +549,36 @@ namespace JeuSurvieConsole
             }
         }
 
+        public int GainXPWithPotion(int baseXP)
+        {
+            int finalXP = baseXP;
+
+            if (XPBoostKillsRemaining > 0)
+            {
+                finalXP *= 2;
+                XPBoostKillsRemaining--;
+                Console.WriteLine("📘 Potion d’XP active : gain d’expérience doublé !");
+            }
+
+            GainXP(finalXP);
+            return finalXP;
+        }
+
+        public int GainGoldWithPotion(int baseGold)
+        {
+            int finalGold = baseGold;
+
+            if (GoldBoostKillsRemaining > 0)
+            {
+                finalGold *= 2;
+                GoldBoostKillsRemaining--;
+                Console.WriteLine("💰 Potion de richesse active : gain d’or doublé !");
+            }
+
+            GainGold(finalGold);
+            return finalGold;
+        }
+
         public void ChoosePotion()
         {
             while (true)
@@ -598,6 +636,15 @@ namespace JeuSurvieConsole
                         DamageBuffTurns = 10;
                         Console.WriteLine("💥 Dégâts augmentés de 20 pendant 10 tours !");
                         break;
+                    case PotionType.XP:
+                        XPBoostKillsRemaining = 2;
+                        Console.WriteLine("📘 Les 2 prochains ennemis vaincus donneront le double d'XP !");
+                        break;
+                    case PotionType.Gold:
+                        GoldBoostKillsRemaining = 2;
+                        Console.WriteLine("💰 Potion d’or activée ! Vos 2 prochains gains d’or seront doublés.");
+                        break;
+
                 }
             }
             else Console.WriteLine("Potion indisponible.");
@@ -795,7 +842,7 @@ namespace JeuSurvieConsole
         }
     }
 
-    enum PotionType { Heal, SuperHeal, Luck, Damage }
+    enum PotionType { Heal, SuperHeal, Luck, Damage, XP, Gold }
 
     class Enemy
     {
@@ -1059,28 +1106,45 @@ namespace JeuSurvieConsole
         {
             int baseChance = 30;
             if (player.LuckBuffTurns > 0)
-                baseChance += 20; // +20% chance de drop avec potion chance
+                baseChance += 20;
 
             int roll = rng.Next(100);
-            if (roll > baseChance) return; // pas de potion drop
+            if (roll > baseChance) return;
 
-            // Poids des potions selon la demande (Chance > Heal > Damage > SuperHeal)
-            int chanceTotal = 100;
-            int weightChance = 40;
+            // Poids des potions
+            int weightLuck = 50;
             int weightHeal = 30;
             int weightDamage = 20;
             int weightSuperHeal = 10;
+            int weightXP = 30;
+            int weightGold = 30;
 
-            int potionRoll = rng.Next(chanceTotal);
+            // Si potion de chance active, augmenter poids des potions utiles
+            if (player.LuckBuffTurns > 0)
+            {
+                weightHeal = (int)(weightHeal * 1.5);       // 45
+                weightDamage = (int)(weightDamage * 1.5);   // 30
+                weightSuperHeal = (int)(weightSuperHeal * 1.5); // 15
+                weightXP = (int)(weightXP * 1.5);           // 45
+                weightGold = (int)(weightGold * 1.5);       // 45
+            }
+
+            int totalWeight = weightLuck + weightHeal + weightDamage + weightSuperHeal + weightXP + weightGold;
+            int potionRoll = rng.Next(totalWeight);
+
             PotionType potion;
-            if (potionRoll < weightChance)
+            if (potionRoll < weightLuck)
                 potion = PotionType.Luck;
-            else if (potionRoll < weightChance + weightHeal)
+            else if (potionRoll < weightLuck + weightHeal)
                 potion = PotionType.Heal;
-            else if (potionRoll < weightChance + weightHeal + weightDamage)
+            else if (potionRoll < weightLuck + weightHeal + weightDamage)
                 potion = PotionType.Damage;
-            else
+            else if (potionRoll < weightLuck + weightHeal + weightDamage + weightSuperHeal)
                 potion = PotionType.SuperHeal;
+            else if (potionRoll < weightLuck + weightHeal + weightDamage + weightSuperHeal + weightXP)
+                potion = PotionType.XP;
+            else
+                potion = PotionType.Gold;
 
             player.Inventory[potion]++;
             Console.WriteLine($"\n🎉 {enemy.Name} a laissé tomber une potion de type {potion} !");
@@ -1357,8 +1421,11 @@ namespace JeuSurvieConsole
 
             var spell = unknown[rng.Next(unknown.Count)];
 
+            Console.Clear();
+            Console.WriteLine("Vous sentez une présence sinistre dans l'air...\n"); Console.ReadKey(true);
+            Console.WriteLine("Quelqu'un apparaît juste derrière vous..."); Console.ReadKey(true);
             Console.WriteLine("🌑 Un mage noir vous tend un grimoire :");
-            Console.WriteLine($"   « {spell.Name} »  —  {spell.Description}");
+            Console.WriteLine($" Voulez-vous apprendre « {spell.Name} » ? {spell.Description}");
             Console.Write("Apprendre ce sort ? (O/N) ");
 
             if (Console.ReadKey(true).Key == ConsoleKey.O)
