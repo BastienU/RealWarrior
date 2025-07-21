@@ -39,18 +39,6 @@ namespace JeuSurvieConsole
 
                 while (player.IsAlive)
                 {
-                    // Juste après la vague 9, avant la vague 10 (boss), on visite le forgeron
-                    if (waveNumber == 10)
-                    {
-                        Console.Clear();
-                        Console.WriteLine("⚠️ Vous vous apprêtez à affronter un terrible boss !");
-                        Console.WriteLine("Il serait sage d'améliorer vos armes pour sortir victorieux de ce combat !");
-                        Console.WriteLine("\nAppuyez sur une touche pour aller voir le forgeron...");
-                        Console.ReadKey(true);
-
-                        Blacksmith.VisitBlacksmith(player);
-                    }
-
                     if (waveNumber % 10 == 0)
                         currentEnemy = EnemyFactory.CreateBoss(waveNumber);
                     else
@@ -62,7 +50,7 @@ namespace JeuSurvieConsole
                         break;
 
                     // Apparition du marchand toutes les 5 vagues, sauf à la vague 10 (boss)
-                    if (waveNumber % 5 == 0 && waveNumber != 10)
+                    if (waveNumber % 10 == 5)
                     {
                         merchant.ShowShop(player);
                         if (random.NextDouble() < 0.5)
@@ -70,6 +58,18 @@ namespace JeuSurvieConsole
                             var darkMage = new DarkMage();
                             darkMage.OfferSpell(player);
                         }
+                    }
+
+                    // Apparition du forgeron toutes les 9 vagues, avant la vague 10 (boss)
+                    if (waveNumber % 10 == 9)
+                    {
+                        Console.Clear();
+                        Console.WriteLine("⚠️ Vous vous apprêtez à affronter un terrible boss !");
+                        Console.WriteLine("Il serait sage d'améliorer vos armes pour sortir victorieux de ce combat !");
+                        Console.WriteLine("\nAppuyez sur une touche pour aller voir le forgeron...");
+                        Console.ReadKey(true);
+
+                        Blacksmith.VisitBlacksmith(player);
                     }
 
                     waveNumber++;
