@@ -747,7 +747,7 @@ namespace JeuSurvieConsole
 
         public void PassTurn()
         {
-            Console.WriteLine("⏳ Vous ne pouvez pas agir ce tour !");
+            Console.WriteLine("Vous ne pouvez pas agir ce tour !");
         }
 
         public void GainXP(int amount)
@@ -886,10 +886,10 @@ namespace JeuSurvieConsole
         public bool IsAlive => Health > 0;
         protected Random random = new Random();
         public bool IsBoss { get; set; } = false;
-        private int attackTurnsRemaining;
-        private int restTurnsRemaining;
+        protected int attackTurnsRemaining;
+        protected int restTurnsRemaining;
         public bool HasAlreadyActedThisTurn { get; set; }
-        private bool isResting;
+        protected bool isResting;
         public bool IsResting => isResting;
         public List<EnemyAttack> Attacks { get; set; } = new();
 
@@ -963,7 +963,7 @@ namespace JeuSurvieConsole
             return true;
         }
 
-        public void Act(Player player)
+        public virtual void Act(Player player)
         {
             if (StunTurns > 0)
             {
@@ -1007,7 +1007,7 @@ namespace JeuSurvieConsole
             }
         }
 
-        private void PerformRandomAttack(Player player)
+        protected void PerformRandomAttack(Player player)
         {
             var rand = new Random();
             double roll = rand.NextDouble();
@@ -1107,6 +1107,7 @@ namespace JeuSurvieConsole
     class SpectralShadowBoss : Enemy
     {
         private Random rng = new Random();
+        private bool justUsedFearCry = false;
 
         public SpectralShadowBoss(int wave) : base("Ombre Spectrale", 650 + wave * 40, 60 + wave * 4)
         {
@@ -1115,24 +1116,88 @@ namespace JeuSurvieConsole
             GoldValue = 100;
 
             Attacks = new List<EnemyAttack>
+            {
+                new EnemyAttack("Griffure fantomatique", 50, 70, 0.4),
+                new EnemyAttack("Cri d'effroi", 0, 0, 0.3, p =>
+                {
+                    Console.WriteLine("😨 Vous êtes paralysé par la peur et perdrez votre prochain tour !");
+                    p.SkipNextTurn = true;
+                    justUsedFearCry = true;
+                }),
+                new EnemyAttack("Drain d’âme", 40, 55, 0.3, p =>
+                {
+                    int healAmount = rng.Next(20, 31);
+                    Health = Math.Min(MaxHealth, Health + healAmount);
+                    Console.WriteLine($"💉 L'Ombre Spectrale vole votre énergie vitale et récupère {healAmount} PV !");
+                })
+            };
+        }
+
+        public override void Act(Player player)
         {
-            new EnemyAttack("Griffure fantomatique", 50, 70, 0.4),
-            new EnemyAttack("Cri d'effroi", 0, 0, 0.3, p =>
+            if (StunTurns > 0)
             {
-                Console.WriteLine("😨 Vous êtes paralysé par la peur et perdrez votre prochain tour !");
-                p.SkipNextTurn = true;
-            }),
-            new EnemyAttack("Drain d’âme", 40, 55, 0.3, p =>
+                Console.WriteLine($"{Name} est étourdi et ne peut pas attaquer !");
+                StunTurns--;
+                return;
+            }
+
+            // Si l'attaque précédente était "Cri d'effroi", on doit forcément attaquer (pas de repos)
+            if (justUsedFearCry)
             {
-                int healAmount = rng.Next(20, 31);
-                Health = Math.Min(MaxHealth, Health + healAmount);
-                Console.WriteLine($"💉 L'Ombre Spectrale vole votre énergie vitale et récupère {healAmount} PV !");
-            })
-        };
+                PerformFearCryFollowUp(player);
+                justUsedFearCry = false;
+                return;
+            }
+
+            // Gestion normale du boss avec repos et attaque
+            if (isResting)
+            {
+                if (restTurnsRemaining > 0)
+                {
+                    if (restTurnsRemaining == 2 || restTurnsRemaining == 3)
+                        Console.WriteLine($"😮 {Name} se repose.");
+                    else
+                        Console.WriteLine($"😮 {Name} se repose encore.");
+                    restTurnsRemaining--;
+                    return;
+                }
+                else
+                {
+                    isResting = false;
+                    attackTurnsRemaining = new Random().Next(1, 6); // 1 à 5 attaques
+                }
+            }
+
+            PerformRandomAttack(player);
+            attackTurnsRemaining--;
+
+            if (attackTurnsRemaining <= 0)
+            {
+                isResting = true;
+                restTurnsRemaining = new Random().Next(1, 4); // Repos de 1 à 3 tours
+            }
+        }
+        private void PerformFearCryFollowUp(Player player)
+        {
+            var normalAttacks = Attacks.Where(a => a.Name != "Cri d'effroi").ToList();
+            if (normalAttacks.Count == 0)
+            {
+                Console.WriteLine($"{Name} hésite... et ne fait rien.");
+                return;
+            }
+
+            var attack = normalAttacks[new Random().Next(normalAttacks.Count)];
+            attack.Execute(player);
         }
 
         public override bool TakeDamage(int amount)
         {
+            if (isResting)
+            {
+                return base.TakeDamage(amount);
+            }
+
             if (rng.NextDouble() < 0.3)
             {
                 Console.WriteLine("💨 L'Ombre Spectrale devient invisible et esquive votre attaque !");
