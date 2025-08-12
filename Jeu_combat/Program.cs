@@ -290,7 +290,8 @@ namespace JeuSurvieConsole
             Console.WriteLine($"Double Frappe ! Vous infligez {dmg1 + dmg2} dégâts !");
             enemy.TakeDamage(dmg1);
             enemy.TakeDamage(dmg2);
-            player.GainEssence(5);
+            if (enemy.IsAlive)
+                player.GainEssence(5);
         }
 
         private void BerserkerSmash(Player player, Enemy enemy)
@@ -734,8 +735,12 @@ namespace JeuSurvieConsole
             if (Health < 0) Health = 0;
 
             Console.WriteLine($"💥 Vous subissez {amount} dégâts ! PV restants : {Health}");
+            if (health <= 100 && health > 0)
+            {
+                Console.ReadKey(true);
+                Console.WriteLine("⚠️ Attention, vous êtes gravement blessé !");
+            }
 
-            // Le bouclier classique disparait après utilisation
             IsDefending = false;
         }
 
@@ -1159,8 +1164,8 @@ namespace JeuSurvieConsole
         {
             List<Func<int, Enemy>> bossConstructors = new List<Func<int, Enemy>>
             {
-                //w => new DragonBoss(w),
-                //w => new WormBoss(w),
+                w => new DragonBoss(w),
+                w => new WormBoss(w),
                 w => new SpectralShadowBoss(w)
             };
 
