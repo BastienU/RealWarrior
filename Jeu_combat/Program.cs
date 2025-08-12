@@ -95,6 +95,20 @@ namespace JeuSurvieConsole
                 // Reset de la défense au début du tour du joueur
                 player.IsDefending = false;
 
+                if (player.SkipNextTurn)
+                {
+                    player.PassTurn();
+                    player.SkipNextTurn = false;
+
+                    if (currentEnemy.IsAlive)
+                    {
+                        currentEnemy.Act(player);
+                        Console.ReadKey(true);
+                    }
+
+                    continue;
+                }
+
                 bool playerActed = false;
                 ConsoleKey key = Console.ReadKey(true).Key;
 
@@ -276,6 +290,7 @@ namespace JeuSurvieConsole
             Console.WriteLine($"Double Frappe ! Vous infligez {dmg1 + dmg2} dégâts !");
             enemy.TakeDamage(dmg1);
             enemy.TakeDamage(dmg2);
+            player.GainEssence(5);
         }
 
         private void BerserkerSmash(Player player, Enemy enemy)
@@ -340,6 +355,7 @@ namespace JeuSurvieConsole
         public int DamageBuffTurns = 0;
         public int LuckBuffTurns = 0;
         public bool IsDefending = false;
+        public bool SkipNextTurn { get; set; } = false;
         public int Gold = 0;
         public List<SpecialAttack> SpecialAttacks = new List<SpecialAttack>();
         public int SpecialCooldown = 0;
@@ -385,10 +401,13 @@ namespace JeuSurvieConsole
             {
                 Console.WriteLine($"{enemy.Name} est étourdi et ne peut pas esquiver !");
                 Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
-                enemy.TakeDamage(dmg);
-                GainEssence(5);
-                if (!enemy.IsAlive)
-                    GainEssence(10);
+                bool hit = enemy.TakeDamage(dmg);
+                if (hit)
+                {
+                    GainEssence(5);
+                    if (!enemy.IsAlive)
+                        GainEssence(10);
+                }
                 return;
             }
 
@@ -424,10 +443,13 @@ namespace JeuSurvieConsole
 
                             int counterDmg = TotalAttack() * counterDmgMultiplier;
                             Console.WriteLine($"⚡ Contre-attaque réussie ! Vous infligez {counterDmg} dégâts à {enemy.Name} !");
-                            enemy.TakeDamage(counterDmg);
-                            GainEssence(5);
-                            if (!enemy.IsAlive)
-                                GainEssence(10);
+                            bool hitCounter = enemy.TakeDamage(counterDmg);
+                            if (hitCounter)
+                            {
+                                GainEssence(5);
+                                if (!enemy.IsAlive)
+                                    GainEssence(10);
+                            }
                         }
                         else
                         {
@@ -451,10 +473,13 @@ namespace JeuSurvieConsole
             else
             {
                 Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
-                enemy.TakeDamage(dmg);
-                GainEssence(5);
-                if (!enemy.IsAlive)
-                    GainEssence(10);
+                bool hit = enemy.TakeDamage(dmg);
+                if (hit)
+                {
+                    GainEssence(5);
+                    if (!enemy.IsAlive)
+                        GainEssence(10);
+                }
             }
         }
 
@@ -717,7 +742,7 @@ namespace JeuSurvieConsole
 
         public void PassTurn()
         {
-            Console.WriteLine("Vous passez votre tour.");
+            Console.WriteLine("⏳ Vous ne pouvez pas agir ce tour !");
         }
 
         public void GainXP(int amount)
@@ -920,10 +945,17 @@ namespace JeuSurvieConsole
             }
         }
 
-        public virtual void TakeDamage(int amount)
+        public virtual bool TakeDamage(int amount)
         {
+            if (amount <= 0)
+            {
+                Console.WriteLine($"{Name} ne subit aucun dégât !");
+                return false;
+            }
+
             Health -= amount;
             Console.WriteLine($"{Name} subit {amount} dégâts !");
+            return true;
         }
 
         public void Act(Player player)
@@ -1067,6 +1099,46 @@ namespace JeuSurvieConsole
         }
     }
 
+    class SpectralShadowBoss : Enemy
+    {
+        private Random rng = new Random();
+
+        public SpectralShadowBoss(int wave) : base("Ombre Spectrale", 650 + wave * 40, 60 + wave * 4)
+        {
+            IsBoss = true;
+            XPValue = 100;
+            GoldValue = 100;
+
+            Attacks = new List<EnemyAttack>
+        {
+            new EnemyAttack("Griffure fantomatique", 50, 70, 0.4),
+            new EnemyAttack("Cri d'effroi", 0, 0, 0.3, p =>
+            {
+                Console.WriteLine("😨 Vous êtes paralysé par la peur et perdrez votre prochain tour !");
+                p.SkipNextTurn = true;
+            }),
+            new EnemyAttack("Drain d’âme", 40, 55, 0.3, p =>
+            {
+                int healAmount = rng.Next(20, 31);
+                Health = Math.Min(MaxHealth, Health + healAmount);
+                Console.WriteLine($"💉 L'Ombre Spectrale vole votre énergie vitale et récupère {healAmount} PV !");
+            })
+        };
+        }
+
+        public override bool TakeDamage(int amount)
+        {
+            if (rng.NextDouble() < 0.3)
+            {
+                Console.WriteLine("💨 L'Ombre Spectrale devient invisible et esquive votre attaque !");
+                return false;
+            }
+
+            return base.TakeDamage(amount);
+        }
+    }
+
+
     class EnemyFactory
     {
         static Random random = new Random();
@@ -1087,8 +1159,9 @@ namespace JeuSurvieConsole
         {
             List<Func<int, Enemy>> bossConstructors = new List<Func<int, Enemy>>
             {
-                w => new DragonBoss(w),
-                w => new WormBoss(w)
+                //w => new DragonBoss(w),
+                //w => new WormBoss(w),
+                w => new SpectralShadowBoss(w)
             };
 
             int index = random.Next(bossConstructors.Count);
