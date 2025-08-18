@@ -109,33 +109,6 @@ namespace JeuSurvieConsole
         {
             while (currentEnemy.IsAlive && player.IsAlive)
             {
-                // Appliquer les effets élémentaires sur l'ennemi AVANT l'action du joueur
-                if (currentEnemy.CurrentElementStatus != null && currentEnemy.CurrentElementStatus.IsActive)
-                {
-                    switch (currentEnemy.CurrentElementStatus.Type)
-                    {
-                        case ElementType.Fire:
-                            int burnDamage = 20;
-                            currentEnemy.TakeDamage(burnDamage);
-                            Console.WriteLine($"🔥 {currentEnemy.Name} subit {burnDamage} dégâts de brûlure !");
-                            break;
-
-                        case ElementType.Ice:
-                            currentEnemy.FreezeTurns = currentEnemy.CurrentElementStatus.Duration;
-                            Console.WriteLine($"❄️ {currentEnemy.Name} est gelé pendant {currentEnemy.FreezeTurns} tour(s) !");
-                            break;
-                    }
-
-                    currentEnemy.CurrentElementStatus.Duration--;
-                }
-
-                // Si l’ennemi meurt de brûlure → loot et fin du combat
-                if (!currentEnemy.IsAlive)
-                {
-                    GagnerRecompenses();
-                    break;
-                }
-
                 DrawUI();
 
                 // Reset de la défense au début du tour du joueur
@@ -143,7 +116,7 @@ namespace JeuSurvieConsole
 
                 if (player.SkipNextTurn)
                 {
-                    // Si le joueur passe son tour à cause d’un gel ou autre
+                    // Si le joueur passe son tour à cause d’un effet
                     player.PassTurn();
                     player.SkipNextTurn = false;
 
@@ -156,22 +129,24 @@ namespace JeuSurvieConsole
                 }
 
                 bool playerActed = false;
+                bool playerActedOffensively = false;
                 ConsoleKey key = Console.ReadKey(true).Key;
 
                 switch (key)
                 {
-                    case ConsoleKey.D1:
-                        bool acted = player.Attack(currentEnemy); // true si une action a vraiment eu lieu
-                        if (acted)
+                    case ConsoleKey.D1: // Attaquer
+                        playerActed = player.Attack(currentEnemy);
+                        if (playerActed)
                         {
                             player.ReduceSpecialCooldown();
-                            playerActed = true;
+                            playerActedOffensively = true;
                         }
                         break;
 
                     case ConsoleKey.D2: // Défendre
                         player.Defend(currentEnemy);
                         playerActed = true;
+                        playerActedOffensively = true;
                         break;
 
                     case ConsoleKey.D3: // Changer arme
@@ -193,6 +168,7 @@ namespace JeuSurvieConsole
 
                     case ConsoleKey.D7: // Attaque spéciale
                         playerActed = player.UseSpecialAttack(currentEnemy);
+                        if (playerActed) playerActedOffensively = true;
                         break;
 
                     case ConsoleKey.D8: // Sort
@@ -213,6 +189,7 @@ namespace JeuSurvieConsole
                                 Console.WriteLine($"✨ Vous lancez {spell.Name} !");
                                 spell.Effect(player, currentEnemy);
                                 playerActed = true;
+                                playerActedOffensively = true;
                             }
                             Console.ReadKey(true);
                         }
@@ -224,14 +201,25 @@ namespace JeuSurvieConsole
                         break;
                 }
 
-                // Si le joueur a agi, alors appliquer l’effet des éléments sur lui et décrémenter les buffs
+                // --- Nouvelle logique ---
                 if (playerActed)
                 {
+                    // Effets sur le joueur (brûlure, etc.)
                     player.UpdateElementStatus();
                     player.UpdateBuffs();
+
+                    // Effets sur l’ennemi (brûlure/gel appliqués par le joueur)
+                    currentEnemy.ApplyElementEffectAfterPlayerAction(playerActedOffensively, player);
+
+                    // Vérif si l’ennemi meurt à cause de brûlure
+                    if (!currentEnemy.IsAlive)
+                    {
+                        GagnerRecompenses();
+                        break;
+                    }
                 }
 
-                // Si l’ennemi est encore en vie, il joue
+                // --- Tour de l’ennemi ---
                 if (playerActed && currentEnemy.IsAlive)
                 {
                     if (!currentEnemy.HasAlreadyActedThisTurn)
@@ -246,7 +234,10 @@ namespace JeuSurvieConsole
                     }
                 }
 
-                // Fin du combat si l’ennemi meurt après l’action du joueur
+                // Vérif si le joueur est mort après l’action ennemie
+                if (!player.IsAlive) break;
+
+                // Vérif si l’ennemi est mort après l’action joueur ou ennemi
                 if (!currentEnemy.IsAlive)
                 {
                     GagnerRecompenses();
@@ -301,7 +292,7 @@ namespace JeuSurvieConsole
             if (player.MagicUnlocked)
                 Console.WriteLine($"🔮 Essence : {player.Essence}/{player.MaxEssence}");
             Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4");
-            if (player.CurrentElementStatus.IsActive)
+            if (player.CurrentElementStatus != null && player.CurrentElementStatus.IsActive)
             {
                 switch (player.CurrentElementStatus.Type)
                 {
@@ -317,7 +308,7 @@ namespace JeuSurvieConsole
                 Console.WriteLine($"📘 Potion d’XP active : encore {player.XPBoostKillsRemaining} ennemi(s) avec XP doublée !");
             if (player.GoldBoostKillsRemaining > 0)
                 Console.WriteLine($"💰 Potion d’or active : encore {player.GoldBoostKillsRemaining} ennemi(s) avec or doublé !\n");
-            string elementActuel = currentEnemy.CurrentElementStatus.IsActive
+            string elementActuel = (currentEnemy.CurrentElementStatus != null && currentEnemy.CurrentElementStatus.IsActive)
                 ? currentEnemy.CurrentElementStatus.Type.ToString()
                 : "Aucun";
             Console.WriteLine($"\n🦾 Ennemi : {currentEnemy.Name} - PV : {currentEnemy.Health}/{currentEnemy.MaxHealth} - Elément appliqué : {elementActuel}\n");
@@ -1244,6 +1235,25 @@ namespace JeuSurvieConsole
 
         public virtual void Act(Player player)
         {
+            // Gestion du gel (Ice)
+            if (FreezeTurns > 0)
+            {
+                Random rng = new Random();
+                // Exemple : 50% de chances de rater son attaque
+                if (rng.NextDouble() < 0.5)
+                {
+                    Console.WriteLine($"❄️ {Name} est gelé et rate son action !");
+                    FreezeTurns--; // Le gel s'affaiblit
+                    return; // Tour perdu
+                }
+                else
+                {
+                    Console.WriteLine($"❄️ {Name} lutte contre la glace mais parvient à attaquer !");
+                    FreezeTurns--; // Le gel diminue même si l'ennemi agit
+                }
+            }
+
+            // Gestion de l'étourdissement classique
             if (StunTurns > 0)
             {
                 Console.WriteLine($"{Name} est étourdi et ne peut pas attaquer !");
@@ -1251,6 +1261,7 @@ namespace JeuSurvieConsole
                 return;
             }
 
+            // Si c’est un boss
             if (IsBoss)
             {
                 if (isResting)
@@ -1359,6 +1370,49 @@ namespace JeuSurvieConsole
                 }
                 CurrentElementStatus.Duration--;
             }
+        }
+
+        public void ApplyElementEffectAfterPlayerAction(bool playerActedOffensively, Player player)
+        {
+            if (CurrentElementStatus == null || !CurrentElementStatus.IsActive)
+                return;
+
+            switch (CurrentElementStatus.Type)
+            {
+                case ElementType.Fire:
+                    // 🔥 Immunité si l'ennemi est un élémentaire de feu
+                    if (this is FireElemental)
+                        break;
+
+                    if (playerActedOffensively)
+                    {
+                        int burnDamage = 20;
+                        TakeDamage(burnDamage);
+                        Console.WriteLine($"🔥 {Name} subit {burnDamage} dégâts de brûlure !");
+                    }
+                    CurrentElementStatus.Duration--;
+                    break;
+
+                case ElementType.Ice:
+                    // ❄️ Immunité si l'ennemi est un élémentaire de glace
+                    if (this is IceElemental)
+                        break;
+
+                    if (playerActedOffensively)
+                    {
+                        // Probabilité que l’ennemi rate son attaque
+                        if (new Random().NextDouble() < 0.3) // 30% de chance.
+                        {
+                            Console.WriteLine($"❄️ {Name} est ralenti par le givre et rate son attaque !");
+                            HasAlreadyActedThisTurn = true;
+                        }
+                    }
+                    CurrentElementStatus.Duration--;
+                    break;
+            }
+
+            if (CurrentElementStatus.Duration <= 0)
+                CurrentElementStatus = null;
         }
     }
 
