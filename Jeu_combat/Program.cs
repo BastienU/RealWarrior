@@ -558,6 +558,7 @@ namespace JeuSurvieConsole
                 else
                 {
                     Console.WriteLine($"{enemy.Name} esquive votre attaque.");
+                    enemy.OnAttackDodged();
                 }
             }
             else
@@ -1194,6 +1195,15 @@ namespace JeuSurvieConsole
             player.TakeDamage(dmg);
         }
 
+        public virtual void OnAttackDodged()
+        {
+            if (CurrentElementStatus != null && CurrentElementStatus.IsActive)
+            {
+                CurrentElementStatus.Duration = Math.Max(0, CurrentElementStatus.Duration - 1);
+            }
+        }
+
+
         private void GenerateLoot()
         {
             string lowerName = Name.ToLower();
@@ -1654,6 +1664,7 @@ namespace JeuSurvieConsole
             if (rng.NextDouble() < 0.3)
             {
                 Console.WriteLine("💨 L'Ombre Spectrale devient invisible et esquive votre attaque !");
+                OnAttackDodged();
                 return false;
             }
 
@@ -1686,10 +1697,10 @@ namespace JeuSurvieConsole
                 player.ApplyElementStatus(ElementType.Ice, 3);
             }),
 
-            // Attaque neutre pour varier
+            // Attaque neutre (pour varier)
             new EnemyAttack("Décharge magique", 50, 70, 0.2, player =>
             {
-                Console.WriteLine("✨ Le sorcier libère une vague d’énergie pure !");
+                Console.WriteLine("✨ Le sorcier libère une vague d’énergie pure sans élément !");
             })
         };
         }
@@ -1698,6 +1709,7 @@ namespace JeuSurvieConsole
     class EnemyFactory
     {
         static Random random = new Random();
+        private static Queue<Func<int, Enemy>> bossCycle = new Queue<Func<int, Enemy>>();
 
         public static Enemy CreateEnemy(int wave)
         {
@@ -1723,9 +1735,23 @@ namespace JeuSurvieConsole
             }
         }
 
+        private static void ResetBossCycle()
+        {
+            var bosses = new List<Func<int, Enemy>>
+        {
+            w => new DragonBoss(w),
+            w => new WormBoss(w),
+            w => new SpectralShadowBoss(w)
+        };
+
+            // Mélanger la liste pour varier l'ordre
+            bosses = bosses.OrderBy(x => random.Next()).ToList();
+
+            bossCycle = new Queue<Func<int, Enemy>>(bosses);
+        }
+
         public static Enemy CreateBoss(int wave)
         {
-            // Si c'est la vague 10, on force le Sorcier
             if (wave == 10)
             {
                 var sorcerer = new SorcererBoss(wave);
@@ -1733,21 +1759,14 @@ namespace JeuSurvieConsole
                 return sorcerer;
             }
 
-            // Sinon, on pioche un boss au hasard
-            List<Func<int, Enemy>> bossConstructors = new List<Func<int, Enemy>>
-            {
-                w => new DragonBoss(w),
-                w => new WormBoss(w),
-                w => new SpectralShadowBoss(w)
-            };
+            if (bossCycle.Count == 0)
+                ResetBossCycle();
 
-            int index = random.Next(bossConstructors.Count);
-            var chosenBoss = bossConstructors[index](wave);
+            var chosenBoss = bossCycle.Dequeue()(wave);
             chosenBoss.IsBoss = true;
 
             return chosenBoss;
         }
-
     }
 
     static class LootManager
@@ -2256,5 +2275,4 @@ namespace JeuSurvieConsole
             Duration = duration;
         }
     }
-
 }
