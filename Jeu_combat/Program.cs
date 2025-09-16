@@ -398,6 +398,7 @@ namespace JeuSurvieConsole
 
     class Player
     {
+        #region Propriétés
         public int CurrentWave { get; set; }
         private int health;
         private int maxHealth;
@@ -419,6 +420,12 @@ namespace JeuSurvieConsole
             }
         }
 
+        private int baseDamage = 0;
+        public int BaseDamage
+        {
+            get => baseDamage;
+            private set => baseDamage = Math.Max(0, value); // éviter les valeurs négatives
+        }
         public int XP = 0;
         public int Level = 1;
         public int XPToNextLevel => 100 * Level;
@@ -448,7 +455,8 @@ namespace JeuSurvieConsole
         public bool MagicUnlocked => LearnedSpells.Count > 0;
         public int ObsidianShieldTurns { get; set; } = 0;
         public int XPBoostKillsRemaining = 0;
-        public int GoldBoostKillsRemaining { get; set; } = 0;
+        public int GoldBoostKillsRemaining { get; set; } = 0; 
+        #endregion
 
         public Player()
         {
@@ -468,14 +476,12 @@ namespace JeuSurvieConsole
 
         public int TotalAttack()
         {
-            // Prendre en compte le niveau de l’arme dans le calcul
-            int baseDamage = CurrentWeapon.BaseDamage + (CurrentWeapon.Level * 5);
-
+            // Dégâts de base du joueur + arme
+            int weaponDamage = CurrentWeapon.BaseDamage + (CurrentWeapon.Level * 5);
             int damageBuff = (DamageBuffTurns > 0) ? 20 : 0;
-
             int specialDamageBuff = (SpecialAttackDamageBuffTurns > 0) ? 20 : 0;
 
-            return baseDamage + damageBuff + specialDamageBuff;
+            return BaseDamage + weaponDamage + damageBuff + specialDamageBuff;
         }
 
         public bool Attack(Enemy enemy)
@@ -928,7 +934,8 @@ namespace JeuSurvieConsole
                 XP -= XPToNextLevel;
                 Level++;
                 IncreaseMaxHealth(50);
-                Console.WriteLine($"🎉 Niveau {Level} atteint ! PV max augmenté de 50 !");
+                IncreaseBaseDamage(5);
+                Console.WriteLine($"🎉 Niveau {Level} atteint ! PV max augmenté de 50 et dégâts de base de 5 !");
             }
         }
 
@@ -948,14 +955,11 @@ namespace JeuSurvieConsole
             MaxHealth += amount;
             Health = MaxHealth;
         }
-
-        public void ModifyMaxHealth(int delta)
+        
+        public void IncreaseBaseDamage(int amount)
         {
-            MaxHealth += delta;
-            if (MaxHealth < 1) MaxHealth = 1;
-            if (Health > MaxHealth) Health = MaxHealth;
+            BaseDamage += amount;
         }
-
 
         // Méthode pour le mini-jeu pour l'esquive et la contre attaque.
         private bool QuickPressMiniGame(string promptMessage, int timeLimitMs, out ConsoleKey expectedKey)
@@ -1069,8 +1073,8 @@ namespace JeuSurvieConsole
         {
             // Effet de fonte : ici on inflige des dégâts fixes, mais on peut l’adapter
             int meltDamage = 100;
-            TakeDamage(meltDamage);
             Console.WriteLine($"💥 Réaction de fonte ! Vous subissez {meltDamage} dégâts !");
+            TakeDamage(meltDamage);
         }
 
         public void UpdateElementStatus()
