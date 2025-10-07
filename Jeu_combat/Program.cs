@@ -73,7 +73,7 @@ namespace JeuSurvieConsole
                     {
                         merchant = new Merchant(waveNumber);
                         merchant.ShowShop(player);
-                        if (random.NextDouble() < 0.5)
+                        if (random.NextDouble() < 0.5) //If I want to have 100% to see the mage, set to 1.0 with (if (true))
                         {
                             var darkMage = new DarkMage();
                             darkMage.OfferSpell(player);
@@ -140,6 +140,7 @@ namespace JeuSurvieConsole
                         {
                             player.ReduceSpecialCooldown();
                             playerActedOffensively = true;
+                            player.ResetDefendCounter();
                         }
                         break;
 
@@ -168,7 +169,11 @@ namespace JeuSurvieConsole
 
                     case ConsoleKey.D7: // Attaque spéciale
                         playerActed = player.UseSpecialAttack(currentEnemy);
-                        if (playerActed) playerActedOffensively = true;
+                        if (playerActed)
+                        {
+                            playerActedOffensively = true;
+                            player.ResetDefendCounter();
+                        }
                         break;
 
                     case ConsoleKey.D8: // Sort
@@ -190,6 +195,7 @@ namespace JeuSurvieConsole
                                 spell.Effect(player, currentEnemy);
                                 playerActed = true;
                                 playerActedOffensively = true;
+                                player.ResetDefendCounter();
                             }
                             Console.ReadKey(true);
                         }
@@ -430,7 +436,6 @@ namespace JeuSurvieConsole
         public int Level = 1;
         public int XPToNextLevel => 100 * Level;
         public bool IsAlive => Health > 0;
-
         public int SpecialAttackDamageBuffTurns { get; internal set; }
 
         public Weapon CurrentWeapon;
@@ -444,6 +449,7 @@ namespace JeuSurvieConsole
         public int DamageBuffTurns = 0;
         public int LuckBuffTurns = 0;
         public bool IsDefending = false;
+        public int ConsecutiveDefendsWithoutStun { get; set; } = 0;
         public bool SkipNextTurn { get; set; } = false;
         public ElementStatus CurrentElementStatus { get; private set; } = new ElementStatus(ElementType.None, 0);
         public int Gold = 0;
@@ -495,7 +501,6 @@ namespace JeuSurvieConsole
 
             if (enemy.StunTurns > 0)
             {
-                Console.WriteLine($"{enemy.Name} est étourdi et ne peut pas esquiver !");
                 Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
                 bool hit = enemy.TakeDamage(dmg);
                 if (hit)
@@ -707,13 +712,41 @@ namespace JeuSurvieConsole
         {
             IsDefending = true;
             Console.WriteLine("🛡️ Vous vous protégez avec votre bouclier !");
-            int chance = 30;
+
+            // Base chance: 30%
+            int baseChance = 30;
+            // Bonus from luck potion: +20%
+            int luckBonus = (LuckBuffTurns > 0) ? 20 : 0;
+            // Progressive bonus: +10% per failed attempt (max +40% after 4 fails)
+            int progressiveBonus = Math.Min(ConsecutiveDefendsWithoutStun * 10, 40);
+            int totalChance = baseChance + luckBonus + progressiveBonus;
             int roll = new Random().Next(100);
-            if (roll < chance && !enemy.IsBoss)
+
+            // Guaranteed stun after 5 consecutive defends OR normal chance success
+            bool guaranteedStun = ConsecutiveDefendsWithoutStun >= 5;
+            bool normalStun = roll < totalChance;
+
+            if ((normalStun || guaranteedStun) && !enemy.IsBoss)
             {
                 enemy.StunTurns = 2;
                 Console.WriteLine($"✨ {enemy.Name} est étourdi !");
+
+                // Reset counter after successful stun
+                ConsecutiveDefendsWithoutStun = 0;
             }
+            else
+            {
+                if (enemy.IsBoss)
+                    Console.WriteLine($"⚠️ {enemy.Name} est trop puissant pour être étourdi !");
+
+                // Increment counter after failed stun
+                ConsecutiveDefendsWithoutStun++;
+            }
+        }
+
+        public void ResetDefendCounter()
+        {
+            ConsecutiveDefendsWithoutStun = 0;
         }
 
         public void ChangeWeapon()
@@ -891,10 +924,15 @@ namespace JeuSurvieConsole
         public void TakeDamage(int amount)
         {
             int warningThreshold = 100;
+
             if (ObsidianShieldTurns > 0)
             {
-                int reduced = amount / 3;
-                Console.WriteLine("🛡️ Mur d’obsidienne absorbe 66% des dégâts !");
+                // Vérifier le niveau du sort Mur d'obsidienne
+                var obsidianSpell = LearnedSpells.FirstOrDefault(s => s.Name == "Mur d'obsidienne");
+                double reductionPercent = (obsidianSpell != null && obsidianSpell.Level == 2) ? 0.20 : 0.33;
+
+                int reduced = (int)(amount * reductionPercent);
+                Console.WriteLine($"🛡️ Mur d'obsidienne absorbe {(int)((1 - reductionPercent) * 100)}% des dégâts !");
                 amount = reduced;
             }
             else if (IsDefending)
@@ -908,6 +946,7 @@ namespace JeuSurvieConsole
             if (Health < 0) Health = 0;
 
             Console.WriteLine($"💥 Vous subissez {amount} dégâts ! PV restants : {Health}");
+
             if (CurrentWave >= 11 && CurrentWave <= 20)
                 warningThreshold = 150;
             else if (CurrentWave >= 31)
@@ -918,6 +957,7 @@ namespace JeuSurvieConsole
                 Console.ReadKey(true);
                 Console.WriteLine("⚠️ Attention, vous êtes gravement blessé !");
             }
+
             IsDefending = false;
         }
 
@@ -2166,9 +2206,10 @@ namespace JeuSurvieConsole
     {
         public string Name { get; }
         public string Formula { get; }
-        public string Description { get; }
+        public string Description { get; private set; }
         public int EssenceCost { get; }
-        public Action<Player, Enemy> Effect { get; }
+        public Action<Player, Enemy> Effect { get; private set; }
+        public int Level { get; private set; } = 1;
 
         public Spell(string name, string hardcodedFormulaOrNull, string description,
                      int cost, Action<Player, Enemy> effect)
@@ -2178,6 +2219,13 @@ namespace JeuSurvieConsole
             Description = description;
             EssenceCost = cost;
             Effect = effect;
+        }
+
+        public void Upgrade(string newDescription, Action<Player, Enemy> newEffect)
+        {
+            Level++;
+            Description = newDescription;
+            Effect = newEffect;
         }
 
         private static string GenerateFormula()
@@ -2191,6 +2239,22 @@ namespace JeuSurvieConsole
         }
     }
 
+    class SpellUpgrade
+    {
+        public string SpellFormula { get; }
+        public int NewLevel { get; }
+        public string UpgradeDescription { get; }
+        public Action<Player, Enemy> NewEffect { get; }
+
+        public SpellUpgrade(string formula, int newLevel, string description, Action<Player, Enemy> effect)
+        {
+            SpellFormula = formula;
+            NewLevel = newLevel;
+            UpgradeDescription = description;
+            NewEffect = effect;
+        }
+    }
+
     class DarkMage
     {
         private static Random rng = new();
@@ -2198,7 +2262,7 @@ namespace JeuSurvieConsole
         private static List<Spell> MasterSpells = new()
     {
         new Spell("Vol de vie interdit", null,
-            "Inflige 60 dégâts et rend 100 PV — coût : 90 Essence",
+            "Niv 1 : Inflige 60 dégâts et rend 100 PV — coût : 90 Essence",
             90,
             (pl, en) =>
             {
@@ -2207,18 +2271,18 @@ namespace JeuSurvieConsole
                 Console.WriteLine("🩸 Vous drainez l'énergie vitale de l'ennemi !");
             }),
 
-        new Spell("Mur d’obsidienne", null,
-            "Réduit de 66 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
+        new Spell("Mur d'obsidienne", null,
+            "Niv 1 : Réduit de 66 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
             60,
             (pl, en) =>
             {
-                pl.ObsidianShieldTurns = 4; // 3 tours de protection
+                pl.ObsidianShieldTurns = 4;
                 pl.IsDefending = false;
                 Console.WriteLine("🛡️ Une barrière d'obsidienne vous protège !");
             }),
 
-        new Spell("Brisure d’arme", null,
-            "Désarme l'ennemi et réduit ses dégâts de 30 % — coût : 60 Essence",
+        new Spell("Brisure d'arme", null,
+            "Niv 1 : Réduit les dégâts de l'ennemi de 30 % — coût : 60 Essence",
             60,
             (pl, en) =>
             {
@@ -2227,40 +2291,130 @@ namespace JeuSurvieConsole
             })
     };
 
+        // Définitions des upgrades pour chaque sort
+        private static Dictionary<string, SpellUpgrade> SpellUpgrades = new();
+
+        private static void InitializeUpgrades()
+        {
+            if (SpellUpgrades.Count > 0) return;
+
+            // Upgrade pour Vol de vie
+            var vieSpell = MasterSpells[0];
+            SpellUpgrades[vieSpell.Formula] = new SpellUpgrade(
+                vieSpell.Formula,
+                2,
+                "Niv 2 : Inflige 200 dégâts et rend 300 PV — coût : 90 Essence",
+                (pl, en) =>
+                {
+                    en.TakeDamage(200);
+                    pl.Heal(300);
+                    Console.WriteLine("🩸💀 Vous drainez massivement l'énergie vitale de l'ennemi !");
+                }
+            );
+
+            // Upgrade pour Mur d'obsidienne
+            var murSpell = MasterSpells[1];
+            SpellUpgrades[murSpell.Formula] = new SpellUpgrade(
+                murSpell.Formula,
+                2,
+                "Niv 2 : Réduit de 80 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
+                (pl, en) =>
+                {
+                    pl.ObsidianShieldTurns = 4;
+                    pl.IsDefending = false;
+                    Console.WriteLine("🛡️✨ Une barrière d'obsidienne renforcée vous protège !");
+                }
+            );
+
+            // Upgrade pour Brisure d'arme
+            var brisureSpell = MasterSpells[2];
+            SpellUpgrades[brisureSpell.Formula] = new SpellUpgrade(
+                brisureSpell.Formula,
+                2,
+                "Niv 2 : Réduit les dégâts de l'ennemi de 50 % — coût : 60 Essence",
+                (pl, en) =>
+                {
+                    en.AttackPower = (int)(en.AttackPower * 0.5);
+                    Console.WriteLine($"🗡️⚡ {en.Name} voit ses dégâts grandement réduits !");
+                }
+            );
+        }
+
         public void OfferSpell(Player p)
         {
-            // Spells que le joueur ne connaît pas encore
+            InitializeUpgrades();
+
+            // Vérifier si le joueur connaît tous les sorts de base
             var unknown = MasterSpells
                 .Where(sp => !p.LearnedSpells.Any(ls => ls.Formula == sp.Formula))
                 .ToList();
 
-            if (unknown.Count == 0)
+            if (unknown.Count > 0)
             {
-                Console.WriteLine("Le mage noir n'a plus rien à vous enseigner...");
+                // Proposer un nouveau sort
+                var spell = unknown[rng.Next(unknown.Count)];
+
+                Console.Clear();
+                Console.WriteLine("Vous sentez une présence sinistre dans l'air...\n");
                 Console.ReadKey(true);
-                return;
-            }
+                Console.WriteLine("Quelqu'un apparaît juste derrière vous...");
+                Console.ReadKey(true);
+                Console.WriteLine("🌑 Un mage noir vous tend un grimoire :");
+                Console.WriteLine($" Voulez-vous apprendre « {spell.Name} » ?");
+                Console.WriteLine($" {spell.Description}");
+                Console.Write("\nApprendre ce sort ? (O/N) ");
 
-            var spell = unknown[rng.Next(unknown.Count)];
-
-            Console.Clear();
-            Console.WriteLine("Vous sentez une présence sinistre dans l'air...\n"); Console.ReadKey(true);
-            Console.WriteLine("Quelqu'un apparaît juste derrière vous..."); Console.ReadKey(true);
-            Console.WriteLine("🌑 Un mage noir vous tend un grimoire :");
-            Console.WriteLine($" Voulez-vous apprendre « {spell.Name} » ? {spell.Description}");
-            Console.Write("Apprendre ce sort ? (O/N)\n ");
-
-            if (Console.ReadKey(true).Key == ConsoleKey.O)
-            {
-                // Utilisation de la méthode utilitaire
-                p.LearnSpell(spell);
-
-                // On révèle la formule une seule fois
-                Console.WriteLine($"Cette formule ne vous sera jamais répétée, retenez là !\n Formule secrète : {spell.Formula.ToUpper()}");
+                if (Console.ReadKey(true).Key == ConsoleKey.O)
+                {
+                    p.LearnSpell(spell);
+                    Console.WriteLine($"\n\n✨ Sort appris !");
+                    Console.WriteLine($"Cette formule ne vous sera jamais répétée, retenez-la !");
+                    Console.WriteLine($"Formule secrète : {spell.Formula.ToUpper()}");
+                }
+                else
+                {
+                    Console.WriteLine("\nVous déclinez l'offre sinistre.");
+                }
             }
             else
             {
-                Console.WriteLine("Vous déclinez l'offre sinistre.");
+                // Tous les sorts sont connus, proposer des upgrades
+                var upgradeable = p.LearnedSpells
+                    .Where(sp => sp.Level == 1 && SpellUpgrades.ContainsKey(sp.Formula))
+                    .ToList();
+
+                if (upgradeable.Count == 0)
+                {
+                    Console.WriteLine("\n🌑 Le mage noir n'a plus rien à vous enseigner...");
+                    Console.ReadKey(true);
+                    return;
+                }
+
+                var spellToUpgrade = upgradeable[rng.Next(upgradeable.Count)];
+                var upgrade = SpellUpgrades[spellToUpgrade.Formula];
+
+                Console.Clear();
+                Console.WriteLine("Le mage noir réapparaît dans les ombres...\n");
+                Console.ReadKey(true);
+                Console.WriteLine("🌑 « Vous maîtrisez déjà mes sorts de base... »");
+                Console.ReadKey(true);
+                Console.WriteLine("🌑 « Mais êtes-vous prêt à en découvrir la véritable puissance ? »\n");
+                Console.ReadKey(true);
+                Console.WriteLine($"Améliorer « {spellToUpgrade.Name} » au niveau 2 ?");
+                Console.WriteLine($"\nActuel : {spellToUpgrade.Description}");
+                Console.WriteLine($"Amélioré : {upgrade.UpgradeDescription}");
+                Console.Write("\nAccepter l'amélioration ? (O/N) ");
+
+                if (Console.ReadKey(true).Key == ConsoleKey.O)
+                {
+                    spellToUpgrade.Upgrade(upgrade.UpgradeDescription, upgrade.NewEffect);
+                    Console.WriteLine($"\n\n⚡ {spellToUpgrade.Name} a été amélioré au niveau 2 !");
+                    Console.WriteLine("La puissance du sort a considérablement augmenté !");
+                }
+                else
+                {
+                    Console.WriteLine("\nVous refusez pour le moment.");
+                }
             }
 
             Console.ReadKey(true);
