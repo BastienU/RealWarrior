@@ -1,5 +1,4 @@
-﻿// Jeu d'aventure/survie en console - version évoluée avec capacités spéciales
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -294,7 +293,7 @@ namespace JeuSurvieConsole
 
             Console.Clear();
             Console.WriteLine($"========== VAGUE {waveNumber} ==========");
-            Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel}");
+            Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel} (level {player.Level})");
             if (player.MagicUnlocked)
                 Console.WriteLine($"🔮 Essence : {player.Essence}/{player.MaxEssence}");
             Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4");
@@ -523,7 +522,7 @@ namespace JeuSurvieConsole
 
                 if (enemyCounterAttacks)
                 {
-                    Console.WriteLine($"{enemy.Name} contre-attaque !");
+                    Console.WriteLine($"{enemy.Name} esquive et contre-attaque !");
 
                     // Mini-jeu d'esquive AVANT que l'ennemi inflige des dégâts
                     if (QuickPressMiniGame("🌀 Esquive la contre-attaque !", 3000, out _))
@@ -1132,7 +1131,7 @@ namespace JeuSurvieConsole
                     break;
             }
 
-            Console.ReadKey(true);
+            //Console.ReadKey(true);
             CurrentElementStatus.Duration--;
 
             if (!CurrentElementStatus.IsActive)
@@ -1405,7 +1404,7 @@ namespace JeuSurvieConsole
             Console.WriteLine($"💥 Réaction de fonte sur {Name} ! Il subit {meltDamage} dégâts !");
         }
 
-        public void UpdateElementStatus()
+        /*public void UpdateElementStatus()
         {
             if (CurrentElementStatus.IsActive)
             {
@@ -1424,7 +1423,7 @@ namespace JeuSurvieConsole
                 }
                 CurrentElementStatus.Duration--;
             }
-        }
+        }*/
 
         public void ApplyElementEffectAfterPlayerAction(bool playerActedOffensively, Player player)
         {
@@ -1580,6 +1579,7 @@ namespace JeuSurvieConsole
                 {
                     Console.WriteLine("😱 Vous êtes intimidé et perdez votre bonus d’attaque !");
                     player.DamageBuffTurns = 0;
+                    player.SpecialAttackDamageBuffTurns = 0;
                 })
             };
         }
