@@ -72,7 +72,7 @@ namespace JeuSurvieConsole
                     {
                         merchant = new Merchant(waveNumber);
                         merchant.ShowShop(player);
-                        if (random.NextDouble() < 0.5) //If I want to have 100% to see the mage, set to 1.0 with (if (true))
+                        if (random.NextDouble() < 1) //If I want to have 100% to see the mage, set to 1.0 with (if (true))
                         {
                             var darkMage = new DarkMage();
                             darkMage.OfferSpell(player);
@@ -293,7 +293,7 @@ namespace JeuSurvieConsole
 
             Console.Clear();
             Console.WriteLine($"========== VAGUE {waveNumber} ==========");
-            Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel} (level {player.Level})");
+            Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel} (Niveau {player.Level})");
             if (player.MagicUnlocked)
                 Console.WriteLine($"🔮 Essence : {player.Essence}/{player.MaxEssence}");
             Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4");
@@ -905,8 +905,8 @@ namespace JeuSurvieConsole
 
             if (LuckBuffTurns > 0)
                 buffs.Add($"Chance accrue ({LuckBuffTurns} tour{(LuckBuffTurns > 1 ? "s" : "")})");
-            if (ObsidianShieldTurns > 0)
-                buffs.Add($"Mur d'obsidienne ({ObsidianShieldTurns})");
+            if (ObsidianShieldTurns > 1)
+                buffs.Add($"Mur d'obsidienne ({ObsidianShieldTurns -1})");
 
 
             return buffs.Count > 0 ? string.Join(", ", buffs) : "Aucun";
@@ -974,7 +974,7 @@ namespace JeuSurvieConsole
                 Level++;
                 IncreaseMaxHealth(50);
                 IncreaseBaseDamage(5);
-                Console.WriteLine($"🎉 Niveau {Level} atteint ! PV max augmenté de 50 et dégâts de base de 5 !");
+                Console.WriteLine($"🎉 Niveau {Level} atteint ! PV max augmentés de 50 et dégâts de base de 5 !");
             }
         }
 
