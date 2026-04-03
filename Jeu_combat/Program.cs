@@ -1,10 +1,24 @@
-﻿// Jeu d'aventure/survie en console - version évoluée avec capacités spéciales
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 
 namespace JeuSurvieConsole
 {
+
+    public enum WeaponType { Sword, Greatsword, Spear, WizardWand }
+
+    enum PotionType { Heal, SuperHeal, Luck, Damage, XP, Gold }
+
+    enum SpecialAttackType { DoubleStrike, BerserkerSmash, StunningBlow }
+
+    public enum ElementType { None, Fire, Ice }
+
+    public static class CombatContext
+    {
+        public static WeaponType CurrentWeaponType { get; set; } = WeaponType.Sword;
+    }
+
     class Program
     {
         static void Main(string[] args)
@@ -23,6 +37,7 @@ namespace JeuSurvieConsole
         Merchant merchant;
 
 
+
         public void Start()
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -31,6 +46,7 @@ namespace JeuSurvieConsole
             {
                 player = new Player();
                 waveNumber = 1;
+                player.CurrentWave = waveNumber;
 
                 Console.Clear();
                 Console.WriteLine("Bienvenue dans cette nouvelle aventure !");
@@ -39,6 +55,8 @@ namespace JeuSurvieConsole
 
                 while (player.IsAlive)
                 {
+                    player.CurrentWave = waveNumber;
+
                     if (waveNumber % 10 == 0)
                         currentEnemy = EnemyFactory.CreateBoss(waveNumber);
                     else
@@ -54,7 +72,7 @@ namespace JeuSurvieConsole
                     {
                         merchant = new Merchant(waveNumber);
                         merchant.ShowShop(player);
-                        if (random.NextDouble() < 0.5)
+                        if (random.NextDouble() < 1) //If I want to have 100% to see the mage, set to 1.0 with (if (true))
                         {
                             var darkMage = new DarkMage();
                             darkMage.OfferSpell(player);
@@ -97,6 +115,7 @@ namespace JeuSurvieConsole
 
                 if (player.SkipNextTurn)
                 {
+                    // Si le joueur passe son tour à cause d’un effet
                     player.PassTurn();
                     player.SkipNextTurn = false;
 
@@ -105,47 +124,58 @@ namespace JeuSurvieConsole
                         currentEnemy.Act(player);
                         Console.ReadKey(true);
                     }
-
                     continue;
                 }
 
                 bool playerActed = false;
+                bool playerActedOffensively = false;
                 ConsoleKey key = Console.ReadKey(true).Key;
 
                 switch (key)
                 {
-                    case ConsoleKey.D1:
-                        player.Attack(currentEnemy);
-                        player.ReduceSpecialCooldown();
-                        playerActed = true;
+                    case ConsoleKey.D1: // Attaquer
+                        playerActed = player.Attack(currentEnemy);
+                        if (playerActed)
+                        {
+                            player.ReduceSpecialCooldown();
+                            playerActedOffensively = true;
+                            player.ResetDefendCounter();
+                        }
                         break;
 
-                    case ConsoleKey.D2:
+                    case ConsoleKey.D2: // Défendre
                         player.Defend(currentEnemy);
                         playerActed = true;
+                        playerActedOffensively = true;
                         break;
 
-                    case ConsoleKey.D3:
+                    case ConsoleKey.D3: // Changer arme
                         player.ChangeWeapon();
                         break;
 
-                    case ConsoleKey.D4:
+                    case ConsoleKey.D4: // Potion
                         player.ChoosePotion();
                         break;
 
-                    case ConsoleKey.D5:
+                    case ConsoleKey.D5: // Inventaire
                         player.ShowInventory();
                         break;
 
-                    case ConsoleKey.D6:
+                    case ConsoleKey.D6: // Passer tour volontairement
                         player.PassTurn();
                         playerActed = true;
                         break;
 
-                    case ConsoleKey.D7:
+                    case ConsoleKey.D7: // Attaque spéciale
                         playerActed = player.UseSpecialAttack(currentEnemy);
+                        if (playerActed)
+                        {
+                            playerActedOffensively = true;
+                            player.ResetDefendCounter();
+                        }
                         break;
-                    case ConsoleKey.D8:
+
+                    case ConsoleKey.D8: // Sort
                         if (player.LearnedSpells.Count == 0)
                         {
                             Console.WriteLine("❌ Vous ne connaissez aucun sort.");
@@ -163,6 +193,8 @@ namespace JeuSurvieConsole
                                 Console.WriteLine($"✨ Vous lancez {spell.Name} !");
                                 spell.Effect(player, currentEnemy);
                                 playerActed = true;
+                                playerActedOffensively = true;
+                                player.ResetDefendCounter();
                             }
                             Console.ReadKey(true);
                         }
@@ -172,9 +204,27 @@ namespace JeuSurvieConsole
                             Console.ReadKey(true);
                         }
                         break;
-
                 }
 
+                // --- Nouvelle logique ---
+                if (playerActed)
+                {
+                    // Effets sur le joueur (brûlure, etc.)
+                    player.UpdateElementStatus();
+                    player.UpdateBuffs();
+
+                    // Effets sur l’ennemi (brûlure/gel appliqués par le joueur)
+                    currentEnemy.ApplyElementEffectAfterPlayerAction(playerActedOffensively, player);
+
+                    // Vérif si l’ennemi meurt à cause de brûlure
+                    if (!currentEnemy.IsAlive)
+                    {
+                        GagnerRecompenses();
+                        break;
+                    }
+                }
+
+                // --- Tour de l’ennemi ---
                 if (playerActed && currentEnemy.IsAlive)
                 {
                     if (!currentEnemy.HasAlreadyActedThisTurn)
@@ -189,27 +239,52 @@ namespace JeuSurvieConsole
                     }
                 }
 
-                if (playerActed && currentEnemy.IsAlive)
-                    player.UpdateBuffs();
+                // Vérif si le joueur est mort après l’action ennemie
+                if (!player.IsAlive) break;
 
+                // Vérif si l’ennemi est mort après l’action joueur ou ennemi
                 if (!currentEnemy.IsAlive)
                 {
-                    int baseGold = random.Next(5, 31);
-                    int gainedGold = player.GainGoldWithPotion(baseGold);
-
-                    int gainedXP = 0;
-                    if (currentEnemy.XPValue > 0)
-                    {
-                        gainedXP = player.GainXPWithPotion(currentEnemy.XPValue);
-                    }
-
-                    Console.WriteLine($"\n🏆 Vous gagnez {gainedGold} pièces d’or et {gainedXP} points d’expérience !");
-
-                    LootManager.DropPotion(player, currentEnemy, random);
-                    Console.ReadKey(true);
+                    GagnerRecompenses();
+                    break;
                 }
-
             }
+        }
+
+        void GagnerRecompenses()
+        {
+            int baseGold = random.Next(5, 31);
+            int gainedGold = player.GainGoldWithPotion(baseGold);
+
+            int gainedXP = 0;
+            if (currentEnemy.XPValue > 0)
+            {
+                gainedXP = player.GainXPWithPotion(currentEnemy.XPValue);
+            }
+
+            Console.WriteLine($"\n🏆 Vous gagnez {gainedGold} pièces d’or et {gainedXP} points d’expérience !");
+
+            LootManager.DropPotion(player, currentEnemy, random);
+            LootManager.DropElementStone(player, currentEnemy, random);
+            if (currentEnemy is SorcererBoss)
+            {
+                player.ObtainWizardWand();
+
+                const string FireStone = "Pierre enflammée";
+                const string IceStone = "Pierre congelée";
+
+                if (!player.ElementStones.ContainsKey(FireStone)) player.ElementStones[FireStone] = 0;
+                if (!player.ElementStones.ContainsKey(IceStone)) player.ElementStones[IceStone] = 0;
+
+                player.ElementStones[FireStone] += 1;
+                player.ElementStones[IceStone] += 1;
+
+                Console.WriteLine("🎁 Vous trouvez également une pierre enflammée et une pierre congelée !");
+            }
+
+            // Reset des effets élémentaires pour le prochain combat
+            currentEnemy.CurrentElementStatus = new ElementStatus(ElementType.None, 0);
+            Console.ReadKey(true);
         }
 
         void DrawUI()
@@ -218,27 +293,32 @@ namespace JeuSurvieConsole
 
             Console.Clear();
             Console.WriteLine($"========== VAGUE {waveNumber} ==========");
-            Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel}");
+            Console.WriteLine($"👤 Joueur : {player.Health}/{player.MaxHealth} PV | Arme : {player.CurrentWeapon.Name} | Atk: {player.TotalAttack()} | Or: {player.Gold} | XP: {player.XP}/{player.XPToNextLevel} (Niveau {player.Level})");
             if (player.MagicUnlocked)
                 Console.WriteLine($"🔮 Essence : {player.Essence}/{player.MaxEssence}");
-            Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4\n");
+            Console.WriteLine($"🧪 Buffs : {player.ListBuffs()} | Cooldown Spécial : {player.SpecialCooldown}/4");
+            if (player.CurrentElementStatus != null && player.CurrentElementStatus.IsActive)
+            {
+                switch (player.CurrentElementStatus.Type)
+                {
+                    case ElementType.Fire:
+                        Console.WriteLine($"🔥 Vous brûlez encore pendant {player.CurrentElementStatus.Duration} tour(s) !");
+                        break;
+                    case ElementType.Ice:
+                        Console.WriteLine($"❄️ Vous êtes recouvert de glace pendant {player.CurrentElementStatus.Duration} tour(s) !");
+                        break;
+                }
+            }
             if (player.XPBoostKillsRemaining > 0)
                 Console.WriteLine($"📘 Potion d’XP active : encore {player.XPBoostKillsRemaining} ennemi(s) avec XP doublée !");
             if (player.GoldBoostKillsRemaining > 0)
-                Console.WriteLine($"💰 Potion d’or active : encore {player.GoldBoostKillsRemaining} ennemi(s) avec or doublé !");
-            Console.WriteLine($"🦾 Ennemi : {currentEnemy.Name} - PV : {currentEnemy.Health}/{currentEnemy.MaxHealth}\n");
+                Console.WriteLine($"💰 Potion d’or active : encore {player.GoldBoostKillsRemaining} ennemi(s) avec or doublé !\n");
+            string elementActuel = (currentEnemy.CurrentElementStatus != null && currentEnemy.CurrentElementStatus.IsActive)
+                ? currentEnemy.CurrentElementStatus.Type.ToString()
+                : "Aucun";
+            Console.WriteLine($"\n🦾 Ennemi : {currentEnemy.Name} - PV : {currentEnemy.Health}/{currentEnemy.MaxHealth} - Elément appliqué : {elementActuel}\n");
             Console.WriteLine("[1] Attaquer  [2] Se défendre  [3] Changer d'arme  [4] Potion  [5] Inventaire  [6] Passer  [7] Capacité spéciale" + extra + "\n");
         }
-    }
-
-
-    // Nouvelle classe SpecialAttack
-
-    enum SpecialAttackType
-    {
-        DoubleStrike,
-        BerserkerSmash,
-        StunningBlow
     }
 
     class SpecialAttack
@@ -323,6 +403,8 @@ namespace JeuSurvieConsole
 
     class Player
     {
+        #region Propriétés
+        public int CurrentWave { get; set; }
         private int health;
         private int maxHealth;
 
@@ -343,20 +425,32 @@ namespace JeuSurvieConsole
             }
         }
 
+        private int baseDamage = 0;
+        public int BaseDamage
+        {
+            get => baseDamage;
+            private set => baseDamage = Math.Max(0, value); // éviter les valeurs négatives
+        }
         public int XP = 0;
         public int Level = 1;
         public int XPToNextLevel => 100 * Level;
         public bool IsAlive => Health > 0;
-
         public int SpecialAttackDamageBuffTurns { get; internal set; }
 
         public Weapon CurrentWeapon;
         public List<Weapon> Weapons = new List<Weapon>();
         public Dictionary<PotionType, int> Inventory = new Dictionary<PotionType, int>();
+        public Dictionary<string, int> ElementStones = new Dictionary<string, int>
+        {
+            { "Pierre enflammée", 0 },
+            { "Pierre congelée", 0 }
+        };
         public int DamageBuffTurns = 0;
         public int LuckBuffTurns = 0;
         public bool IsDefending = false;
+        public int ConsecutiveDefendsWithoutStun { get; set; } = 0;
         public bool SkipNextTurn { get; set; } = false;
+        public ElementStatus CurrentElementStatus { get; private set; } = new ElementStatus(ElementType.None, 0);
         public int Gold = 0;
         public List<SpecialAttack> SpecialAttacks = new List<SpecialAttack>();
         public int SpecialCooldown = 0;
@@ -366,14 +460,17 @@ namespace JeuSurvieConsole
         public bool MagicUnlocked => LearnedSpells.Count > 0;
         public int ObsidianShieldTurns { get; set; } = 0;
         public int XPBoostKillsRemaining = 0;
-        public int GoldBoostKillsRemaining { get; set; } = 0;
+        public int GoldBoostKillsRemaining { get; set; } = 0; 
+        #endregion
 
         public Player()
         {
-            Weapons.Add(new Weapon("Épée", 50));
-            Weapons.Add(new Weapon("Espadon", 65));
-            Weapons.Add(new Weapon("Lance", 45));
+            Weapons.Add(new Weapon("Épée", 50, WeaponType.Sword));
+            Weapons.Add(new Weapon("Espadon", 65, WeaponType.Greatsword));
+            Weapons.Add(new Weapon("Lance", 45, WeaponType.Spear));
             CurrentWeapon = Weapons[0];
+
+            CombatContext.CurrentWeaponType = CurrentWeapon.Type;
 
             foreach (PotionType pt in Enum.GetValues(typeof(PotionType)))
                 Inventory[pt] = 2;
@@ -384,23 +481,25 @@ namespace JeuSurvieConsole
 
         public int TotalAttack()
         {
-            // Prendre en compte le niveau de l’arme dans le calcul
-            int baseDamage = CurrentWeapon.BaseDamage + (CurrentWeapon.Level * 5);
-
+            // Dégâts de base du joueur + arme
+            int weaponDamage = CurrentWeapon.BaseDamage + (CurrentWeapon.Level * 5);
             int damageBuff = (DamageBuffTurns > 0) ? 20 : 0;
-
             int specialDamageBuff = (SpecialAttackDamageBuffTurns > 0) ? 20 : 0;
 
-            return baseDamage + damageBuff + specialDamageBuff;
+            return BaseDamage + weaponDamage + damageBuff + specialDamageBuff;
         }
 
-        public void Attack(Enemy enemy)
+        public bool Attack(Enemy enemy)
         {
+            if (CurrentWeapon.Type == WeaponType.WizardWand)
+            {
+                return AttackWithWizardWand(enemy);
+            }
+
             int dmg = TotalAttack();
 
             if (enemy.StunTurns > 0)
             {
-                Console.WriteLine($"{enemy.Name} est étourdi et ne peut pas esquiver !");
                 Console.WriteLine($"Vous attaquez {enemy.Name} avec votre {CurrentWeapon.Name} et infligez {dmg} dégâts !");
                 bool hit = enemy.TakeDamage(dmg);
                 if (hit)
@@ -409,7 +508,7 @@ namespace JeuSurvieConsole
                     if (!enemy.IsAlive)
                         GainEssence(10);
                 }
-                return;
+                return true;
             }
 
             bool canDodge = !enemy.IsResting;
@@ -423,7 +522,7 @@ namespace JeuSurvieConsole
 
                 if (enemyCounterAttacks)
                 {
-                    Console.WriteLine($"{enemy.Name} contre-attaque !");
+                    Console.WriteLine($"{enemy.Name} esquive et contre-attaque !");
 
                     // Mini-jeu d'esquive AVANT que l'ennemi inflige des dégâts
                     if (QuickPressMiniGame("🌀 Esquive la contre-attaque !", 3000, out _))
@@ -469,6 +568,7 @@ namespace JeuSurvieConsole
                 else
                 {
                     Console.WriteLine($"{enemy.Name} esquive votre attaque.");
+                    enemy.OnAttackDodged();
                 }
             }
             else
@@ -481,6 +581,79 @@ namespace JeuSurvieConsole
                     if (!enemy.IsAlive)
                         GainEssence(10);
                 }
+            }
+            return true; // le tour est consommé
+        }
+
+        // Retourne true si le tour est consommé, false si annulé / impossible (pas de pierres)
+        private bool AttackWithWizardWand(Enemy enemy)
+        {
+            int fire = ElementStones["Pierre enflammée"];
+            int ice = ElementStones["Pierre congelée"];
+
+            if (fire <= 0 && ice <= 0)
+            {
+                Console.WriteLine("❌ Vous n’avez aucune pierre élémentaire pour utiliser la baguette !");
+                Console.ReadKey(true);
+                return false; // ne consomme pas le tour
+            }
+
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("✨ Choisissez la pierre élémentaire à utiliser :");
+                Console.WriteLine($"[1] Pierre enflammée ({fire})");
+                Console.WriteLine($"[2] Pierre congelée ({ice})");
+                Console.WriteLine("[0] Annuler");
+
+                var key = Console.ReadKey(true).Key;
+                if (key == ConsoleKey.D0) return false; // annule -> ne consomme pas le tour
+
+                ElementType chosen = ElementType.None;
+                string stoneLabel = null;
+
+                if (key == ConsoleKey.D1)
+                {
+                    if (fire <= 0) { Console.WriteLine("❌ Pas assez de pierres enflammées !"); Console.ReadKey(true); return false; }
+                    chosen = ElementType.Fire;
+                    stoneLabel = "Pierre enflammée";
+                }
+                else if (key == ConsoleKey.D2)
+                {
+                    if (ice <= 0) { Console.WriteLine("❌ Pas assez de pierres congelées !"); Console.ReadKey(true); return false; }
+                    chosen = ElementType.Ice;
+                    stoneLabel = "Pierre congelée";
+                }
+                else
+                {
+                    Console.WriteLine("❌ Choix invalide.");
+                    Console.ReadKey(true);
+                    continue;
+                }
+
+                // Consommation de la pierre
+                ElementStones[stoneLabel]--;
+
+                // Dégâts de la baguette
+                int dmg = TotalAttack();
+
+                Console.WriteLine($"✨ Vous canalisez une {stoneLabel} et projetez une attaque {chosen} !");
+                Console.WriteLine($"💥 La frappe magique ne peut pas être esquivée. Dégâts infligés : {dmg}");
+
+                // Pas d’esquive → on applique directement
+                bool hit = enemy.TakeDamage(dmg);
+                if (hit)
+                {
+                    GainEssence(5);
+                    if (!enemy.IsAlive)
+                        GainEssence(10);
+                }
+
+                // Application / réaction d’élément (durée 3 tours par défaut)
+                enemy.ApplyElementStatus(chosen, 3);
+
+                Console.ReadKey(true);
+                return true;
             }
         }
 
@@ -534,18 +707,45 @@ namespace JeuSurvieConsole
             return true;
         }
 
-
         public void Defend(Enemy enemy)
         {
             IsDefending = true;
             Console.WriteLine("🛡️ Vous vous protégez avec votre bouclier !");
-            int chance = 30;
+
+            // Base chance: 30%
+            int baseChance = 30;
+            // Bonus from luck potion: +20%
+            int luckBonus = (LuckBuffTurns > 0) ? 20 : 0;
+            // Progressive bonus: +10% per failed attempt (max +40% after 4 fails)
+            int progressiveBonus = Math.Min(ConsecutiveDefendsWithoutStun * 10, 40);
+            int totalChance = baseChance + luckBonus + progressiveBonus;
             int roll = new Random().Next(100);
-            if (roll < chance && !enemy.IsBoss)
+
+            // Guaranteed stun after 5 consecutive defends OR normal chance success
+            bool guaranteedStun = ConsecutiveDefendsWithoutStun >= 5;
+            bool normalStun = roll < totalChance;
+
+            if ((normalStun || guaranteedStun) && !enemy.IsBoss)
             {
                 enemy.StunTurns = 2;
                 Console.WriteLine($"✨ {enemy.Name} est étourdi !");
+
+                // Reset counter after successful stun
+                ConsecutiveDefendsWithoutStun = 0;
             }
+            else
+            {
+                if (enemy.IsBoss)
+                    Console.WriteLine($"⚠️ {enemy.Name} est trop puissant pour être étourdi !");
+
+                // Increment counter after failed stun
+                ConsecutiveDefendsWithoutStun++;
+            }
+        }
+
+        public void ResetDefendCounter()
+        {
+            ConsecutiveDefendsWithoutStun = 0;
         }
 
         public void ChangeWeapon()
@@ -568,6 +768,7 @@ namespace JeuSurvieConsole
                     idx >= 1 && idx <= Weapons.Count)
                 {
                     CurrentWeapon = Weapons[idx - 1];
+                    CombatContext.CurrentWeaponType = CurrentWeapon.Type;
                     return;
                 }
 
@@ -680,9 +881,14 @@ namespace JeuSurvieConsole
         public void ShowInventory()
         {
             Console.Clear();
-            Console.WriteLine("Inventaire :");
+            Console.WriteLine("Inventaire des potions :");
             foreach (var kv in Inventory)
                 Console.WriteLine($"{kv.Key} : {kv.Value}");
+
+            Console.WriteLine("\nInventaire des pierres élémentaires :");
+            foreach (var kv in ElementStones)
+                Console.WriteLine($"{kv.Key} : {kv.Value}");
+
             Console.WriteLine("Appuyez sur une touche...");
             Console.ReadKey(true);
         }
@@ -699,8 +905,8 @@ namespace JeuSurvieConsole
 
             if (LuckBuffTurns > 0)
                 buffs.Add($"Chance accrue ({LuckBuffTurns} tour{(LuckBuffTurns > 1 ? "s" : "")})");
-            if (ObsidianShieldTurns > 0)
-                buffs.Add($"Mur d'obsidienne ({ObsidianShieldTurns})");
+            if (ObsidianShieldTurns > 1)
+                buffs.Add($"Mur d'obsidienne ({ObsidianShieldTurns -1})");
 
 
             return buffs.Count > 0 ? string.Join(", ", buffs) : "Aucun";
@@ -712,16 +918,20 @@ namespace JeuSurvieConsole
             if (LuckBuffTurns > 0) LuckBuffTurns--;
             if (SpecialAttackDamageBuffTurns > 0) SpecialAttackDamageBuffTurns--;
             if (ObsidianShieldTurns > 0) ObsidianShieldTurns--;
-
-            IsDefending = false;
         }
 
         public void TakeDamage(int amount)
         {
+            int warningThreshold = 100;
+
             if (ObsidianShieldTurns > 0)
             {
-                int reduced = amount / 3;
-                Console.WriteLine("🛡️ Mur d’obsidienne absorbe 66% des dégâts !");
+                // Vérifier le niveau du sort Mur d'obsidienne
+                var obsidianSpell = LearnedSpells.FirstOrDefault(s => s.Name == "Mur d'obsidienne");
+                double reductionPercent = (obsidianSpell != null && obsidianSpell.Level == 2) ? 0.20 : 0.33;
+
+                int reduced = (int)(amount * reductionPercent);
+                Console.WriteLine($"🛡️ Mur d'obsidienne absorbe {(int)((1 - reductionPercent) * 100)}% des dégâts !");
                 amount = reduced;
             }
             else if (IsDefending)
@@ -735,7 +945,13 @@ namespace JeuSurvieConsole
             if (Health < 0) Health = 0;
 
             Console.WriteLine($"💥 Vous subissez {amount} dégâts ! PV restants : {Health}");
-            if (health <= 100 && health > 0)
+
+            if (CurrentWave >= 11 && CurrentWave <= 20)
+                warningThreshold = 150;
+            else if (CurrentWave >= 31)
+                warningThreshold = 200;
+
+            if (Health <= warningThreshold && Health > 0)
             {
                 Console.ReadKey(true);
                 Console.WriteLine("⚠️ Attention, vous êtes gravement blessé !");
@@ -743,7 +959,6 @@ namespace JeuSurvieConsole
 
             IsDefending = false;
         }
-
 
         public void PassTurn()
         {
@@ -758,7 +973,8 @@ namespace JeuSurvieConsole
                 XP -= XPToNextLevel;
                 Level++;
                 IncreaseMaxHealth(50);
-                Console.WriteLine($"🎉 Niveau {Level} atteint ! PV max augmenté de 50 !");
+                IncreaseBaseDamage(5);
+                Console.WriteLine($"🎉 Niveau {Level} atteint ! PV max augmentés de 50 et dégâts de base de 5 !");
             }
         }
 
@@ -766,6 +982,7 @@ namespace JeuSurvieConsole
         {
             Gold += amount;
         }
+
         public void ReduceSpecialCooldown()
         {
             if (SpecialCooldown > 0)
@@ -777,14 +994,11 @@ namespace JeuSurvieConsole
             MaxHealth += amount;
             Health = MaxHealth;
         }
-
-        public void ModifyMaxHealth(int delta)
+        
+        public void IncreaseBaseDamage(int amount)
         {
-            MaxHealth += delta;
-            if (MaxHealth < 1) MaxHealth = 1;
-            if (Health > MaxHealth) Health = MaxHealth;
+            BaseDamage += amount;
         }
-
 
         // Méthode pour le mini-jeu pour l'esquive et la contre attaque.
         private bool QuickPressMiniGame(string promptMessage, int timeLimitMs, out ConsoleKey expectedKey)
@@ -856,6 +1070,99 @@ namespace JeuSurvieConsole
             Console.WriteLine($"💚 Vous récupérez {amount} PV (PV : {Health}/{MaxHealth})");
         }
 
+        public void ObtainWizardWand()
+        {
+            if (!Weapons.Any(w => w.Type == WeaponType.WizardWand))
+            {
+                Weapons.Add(new Weapon("Baguette du sorcier", 40, WeaponType.WizardWand));
+                Console.WriteLine("🪄 Vous obtenez la Baguette du sorcier ! Vous pourrez utiliser vos pierres élémentaires grâce à elle.");
+            }
+        }
+
+        public void ApplyElementStatus(ElementType type, int duration)
+        {
+            if (type == ElementType.None) return;
+
+            // Vérifier si la cible a déjà l'élément opposé
+            bool isMeltReaction =
+                (CurrentElementStatus.Type == ElementType.Fire && type == ElementType.Ice) ||
+                (CurrentElementStatus.Type == ElementType.Ice && type == ElementType.Fire);
+
+            if (isMeltReaction)
+            {
+                TriggerMeltReaction();
+                // On retire l'effet élémentaire précédent
+                CurrentElementStatus = new ElementStatus(ElementType.None, 0);
+                return;
+            }
+
+            // Sinon comportement normal
+            if (CurrentElementStatus.Type == type)
+            {
+                if (duration > CurrentElementStatus.Duration)
+                    CurrentElementStatus.Duration = duration;
+            }
+            else
+            {
+                CurrentElementStatus = new ElementStatus(type, duration);
+            }
+        }
+
+        private void TriggerMeltReaction()
+        {
+            // Effet de fonte : ici on inflige des dégâts fixes, mais on peut l’adapter
+            int meltDamage = 100;
+            Console.WriteLine($"💥 Réaction de fonte ! Vous subissez {meltDamage} dégâts !");
+            TakeDamage(meltDamage);
+        }
+
+        public void UpdateElementStatus()
+        {
+            if (!CurrentElementStatus.IsActive)
+                return;
+
+            switch (CurrentElementStatus.Type)
+            {
+                case ElementType.Fire:
+                    int burnDamage = 20;
+                    TakeElementalDamage(burnDamage, ElementType.Fire);
+                    break;
+                case ElementType.Ice:
+                    break;
+            }
+
+            //Console.ReadKey(true);
+            CurrentElementStatus.Duration--;
+
+            if (!CurrentElementStatus.IsActive)
+            {
+                switch (CurrentElementStatus.Type)
+                {
+                    case ElementType.Fire:
+                        Console.WriteLine("🔥 Le feu s'éteint.");
+                        break;
+                    case ElementType.Ice:
+                        Console.WriteLine("❄️ La glace fond.");
+                        break;
+                }
+
+                CurrentElementStatus = new ElementStatus(ElementType.None, 0);
+            }
+        }
+
+        public void TakeElementalDamage(int amount, ElementType type)
+        {
+            Health -= amount;
+            if (Health < 0) Health = 0;
+
+            Console.WriteLine($"💥 Vous subissez {amount} dégâts de {type.ToString().ToLower()} ! PV restants : {Health}");
+
+            if (health <= 100 && health > 0)
+            {
+                Console.ReadKey(true);
+                Console.WriteLine("⚠️ Attention, vous êtes gravement blessé !");
+            }
+        }
     }
 
 
@@ -865,15 +1172,16 @@ namespace JeuSurvieConsole
         public int BaseDamage;
         public int Level;
         public static int MaxLevel = 5;
-        public Weapon(string name, int baseDamage)
+        public WeaponType Type;
+
+        public Weapon(string name, int baseDamage, WeaponType type)
         {
             Name = name;
             BaseDamage = baseDamage;
             Level = 1;
+            Type = type;
         }
     }
-
-    enum PotionType { Heal, SuperHeal, Luck, Damage, XP, Gold }
 
     class Enemy
     {
@@ -891,10 +1199,10 @@ namespace JeuSurvieConsole
         public bool HasAlreadyActedThisTurn { get; set; }
         protected bool isResting;
         public bool IsResting => isResting;
+        public ElementType Element { get; protected set; } = ElementType.None;
+        public ElementStatus CurrentElementStatus { get; set; } = new ElementStatus(ElementType.None, 0);
+        public int FreezeTurns { get; set; } = 0;
         public List<EnemyAttack> Attacks { get; set; } = new();
-
-
-        // Ajout d’un compteur d’étourdissement
         public int StunTurns = 0;
 
         public Enemy(string name, int hp, int atk)
@@ -924,10 +1232,20 @@ namespace JeuSurvieConsole
                 return;
             }
 
+            Console.WriteLine();
             Console.WriteLine($"{Name} attaque !");
             int dmg = AttackPower;
             player.TakeDamage(dmg);
         }
+
+        public virtual void OnAttackDodged()
+        {
+            if (CurrentElementStatus != null && CurrentElementStatus.IsActive)
+            {
+                CurrentElementStatus.Duration = Math.Max(0, CurrentElementStatus.Duration - 1);
+            }
+        }
+
 
         private void GenerateLoot()
         {
@@ -938,10 +1256,15 @@ namespace JeuSurvieConsole
                 XPValue = random.Next(5, 11);
                 GoldValue = random.Next(5, 15);
             }
-            else if (lowerName.Contains("orc"))
+            else if (lowerName.Contains("troll"))
             {
                 XPValue = random.Next(12, 21);
                 GoldValue = random.Next(10, 25);
+            }
+            else if (lowerName.Contains("orc"))
+            {
+                XPValue = random.Next(22, 31);
+                GoldValue = random.Next(20, 35);
             }
             else
             {
@@ -965,6 +1288,25 @@ namespace JeuSurvieConsole
 
         public virtual void Act(Player player)
         {
+            // Gestion du gel (Ice)
+            if (FreezeTurns > 0)
+            {
+                Random rng = new Random();
+                // Exemple : 50% de chances de rater son attaque
+                if (rng.NextDouble() < 0.5)
+                {
+                    Console.WriteLine($"❄️ {Name} est gelé et rate son action !");
+                    FreezeTurns--; // Le gel s'affaiblit
+                    return; // Tour perdu
+                }
+                else
+                {
+                    Console.WriteLine($"❄️ {Name} lutte contre la glace mais parvient à attaquer !");
+                    FreezeTurns--; // Le gel diminue même si l'ennemi agit
+                }
+            }
+
+            // Gestion de l'étourdissement classique
             if (StunTurns > 0)
             {
                 Console.WriteLine($"{Name} est étourdi et ne peut pas attaquer !");
@@ -972,6 +1314,7 @@ namespace JeuSurvieConsole
                 return;
             }
 
+            // Si c’est un boss
             if (IsBoss)
             {
                 if (isResting)
@@ -1007,6 +1350,7 @@ namespace JeuSurvieConsole
             }
         }
 
+        // Méthode pour effectuer une attaque aléatoire parmi celles disponibles (boss uniquement)
         protected void PerformRandomAttack(Player player)
         {
             var rand = new Random();
@@ -1027,7 +1371,102 @@ namespace JeuSurvieConsole
             Console.WriteLine($"{Name} hésite... et ne fait rien.");
         }
 
+        public void ApplyElementStatus(ElementType type, int duration)
+        {
+            bool isMeltReaction =
+                (CurrentElementStatus.Type == ElementType.Fire && type == ElementType.Ice) ||
+                (CurrentElementStatus.Type == ElementType.Ice && type == ElementType.Fire);
 
+            if (isMeltReaction)
+            {
+                TriggerMeltReaction();
+                CurrentElementStatus = new ElementStatus(ElementType.None, 0);
+                return;
+            }
+
+            if (CurrentElementStatus.Type == type)
+            {
+                if (duration > CurrentElementStatus.Duration)
+                    CurrentElementStatus.Duration = duration;
+            }
+            else
+            {
+                CurrentElementStatus = new ElementStatus(type, duration);
+            }
+
+            Console.WriteLine($"⚠️ {Name} subit l'effet {type} pendant {duration} tours !");
+        }
+
+        private void TriggerMeltReaction()
+        {
+            int meltDamage = AttackPower * 10;
+            TakeDamage(meltDamage);
+            Console.WriteLine($"💥 Réaction de fonte sur {Name} ! Il subit {meltDamage} dégâts !");
+        }
+
+        /*public void UpdateElementStatus()
+        {
+            if (CurrentElementStatus.IsActive)
+            {
+                switch (CurrentElementStatus.Type)
+                {
+                    case ElementType.Fire:
+                        int burnDamage = 20;
+                        TakeDamage(burnDamage);
+                        Console.WriteLine($"🔥 {Name} subit {burnDamage} dégâts de brûlure.");
+                        break;
+
+                    case ElementType.Ice:
+                        StunTurns = CurrentElementStatus.Duration;
+                        Console.WriteLine($"❄️ {Name} est gelé ({StunTurns} tours restants).");
+                        break;
+                }
+                CurrentElementStatus.Duration--;
+            }
+        }*/
+
+        public void ApplyElementEffectAfterPlayerAction(bool playerActedOffensively, Player player)
+        {
+            if (CurrentElementStatus == null || !CurrentElementStatus.IsActive)
+                return;
+
+            switch (CurrentElementStatus.Type)
+            {
+                case ElementType.Fire:
+                    // 🔥 Immunité si l'ennemi est un élémentaire de feu
+                    if (this is FireElemental)
+                        break;
+
+                    if (playerActedOffensively)
+                    {
+                        int burnDamage = 20;
+                        TakeDamage(burnDamage);
+                        Console.WriteLine($"🔥 {Name} subit {burnDamage} dégâts de brûlure !");
+                    }
+                    CurrentElementStatus.Duration--;
+                    break;
+
+                case ElementType.Ice:
+                    // ❄️ Immunité si l'ennemi est un élémentaire de glace
+                    if (this is IceElemental)
+                        break;
+
+                    if (playerActedOffensively)
+                    {
+                        // Probabilité que l’ennemi rate son attaque
+                        if (new Random().NextDouble() < 0.3) // 30% de chance.
+                        {
+                            Console.WriteLine($"❄️ {Name} est ralenti par le givre et rate son attaque !");
+                            HasAlreadyActedThisTurn = true;
+                        }
+                    }
+                    CurrentElementStatus.Duration--;
+                    break;
+            }
+
+            if (CurrentElementStatus.Duration <= 0)
+                CurrentElementStatus = null;
+        }
     }
 
     class EnemyAttack
@@ -1056,6 +1495,73 @@ namespace JeuSurvieConsole
         }
     }
 
+    class FireElemental : Enemy
+    {
+        public FireElemental(int wave)
+            : base("Élémentaire de Feu", 100 + wave * 20, 10 + wave * 2)
+        {
+            Element = ElementType.Fire;
+            CurrentElementStatus = new ElementStatus(ElementType.Fire, int.MaxValue);
+        }
+
+        public override bool TakeDamage(int amount)
+        {
+            if (CombatContext.CurrentWeaponType == WeaponType.Sword ||
+                CombatContext.CurrentWeaponType == WeaponType.Greatsword ||
+                CombatContext.CurrentWeaponType == WeaponType.Spear)
+            {
+                amount = (int)(amount * 0.2);
+            }
+
+            return base.TakeDamage(amount);
+        }
+
+        public override void Act(Player player)
+        {
+            base.Act(player);
+
+            if (IsAlive && player.IsAlive)
+            {
+                int burnDuration = 3;
+                player.ApplyElementStatus(Element, burnDuration);
+                Console.WriteLine($"🔥 {Name} vous enflamme ! ({burnDuration} tours)");
+            }
+        }
+    }
+
+    class IceElemental : Enemy
+    {
+        public IceElemental(int wave)
+            : base("Élémentaire de Glace", 100 + wave * 20, 10 + wave * 2)
+        {
+            Element = ElementType.Ice;
+            CurrentElementStatus = new ElementStatus(ElementType.Ice, int.MaxValue);
+        }
+
+        public override bool TakeDamage(int amount)
+        {
+            if (CombatContext.CurrentWeaponType == WeaponType.Sword ||
+                CombatContext.CurrentWeaponType == WeaponType.Greatsword ||
+                CombatContext.CurrentWeaponType == WeaponType.Spear)
+            {
+                amount = (int)(amount * 0.2);
+            }
+
+            return base.TakeDamage(amount);
+        }
+
+        public override void Act(Player player)
+        {
+            base.Act(player);
+
+            if (IsAlive && player.IsAlive)
+            {
+                int iceDuration = 3;
+                player.ApplyElementStatus(Element, iceDuration);
+                Console.WriteLine($"❄️ {Name} vous recouvre de glace ! ({iceDuration} tours)");
+            }
+        }
+    }
 
     class DragonBoss : Enemy
     {
@@ -1073,6 +1579,7 @@ namespace JeuSurvieConsole
                 {
                     Console.WriteLine("😱 Vous êtes intimidé et perdez votre bonus d’attaque !");
                     player.DamageBuffTurns = 0;
+                    player.SpecialAttackDamageBuffTurns = 0;
                 })
             };
         }
@@ -1201,6 +1708,7 @@ namespace JeuSurvieConsole
             if (rng.NextDouble() < 0.3)
             {
                 Console.WriteLine("💨 L'Ombre Spectrale devient invisible et esquive votre attaque !");
+                OnAttackDodged();
                 return false;
             }
 
@@ -1208,34 +1716,97 @@ namespace JeuSurvieConsole
         }
     }
 
+    class SorcererBoss : Enemy
+    {
+        public SorcererBoss(int wave)
+            : base("Sorcier", 600 + wave * 40, 60 + wave * 4)
+        {
+            IsBoss = true;
+            XPValue = 120;
+            GoldValue = 120;
+
+            Attacks = new List<EnemyAttack>
+        {
+            // Attaque de feu
+            new EnemyAttack("Boule de feu", 70, 90, 0.4, player =>
+            {
+                Console.WriteLine("🔥 Le sorcier lance une boule de feu !");
+                player.ApplyElementStatus(ElementType.Fire, 3);
+            }),
+
+            // Attaque de glace
+            new EnemyAttack("Éclair de glace", 70, 90, 0.4, player =>
+            {
+                Console.WriteLine("❄️ Le sorcier projette un éclair glacé !");
+                player.ApplyElementStatus(ElementType.Ice, 3);
+            }),
+
+            // Attaque neutre (pour varier)
+            new EnemyAttack("Décharge magique", 50, 70, 0.2, player =>
+            {
+                Console.WriteLine("✨ Le sorcier libère une vague d’énergie pure sans élément !");
+            })
+        };
+        }
+    }
 
     class EnemyFactory
     {
         static Random random = new Random();
+        private static Queue<Func<int, Enemy>> bossCycle = new Queue<Func<int, Enemy>>();
 
         public static Enemy CreateEnemy(int wave)
         {
-            int type = random.Next(3);
+            int type;
+
+            if (wave < 10)
+            {
+                type = random.Next(3);
+            }
+            else
+            {
+                type = random.Next(5);
+            }
+
             switch (type)
             {
                 case 0: return new Enemy("Gobelin", 150 + wave * 10, 30 + wave * 2);
                 case 1: return new Enemy("Orc", 200 + wave * 15, 40 + wave * 3);
                 case 2: return new Enemy("Troll", 250 + wave * 20, 50 + wave * 4);
+                case 3: return new FireElemental(wave);
+                case 4: return new IceElemental(wave);
                 default: return new Enemy("Gobelin", 150 + wave * 10, 30 + wave * 2);
             }
         }
 
+        private static void ResetBossCycle()
+        {
+            var bosses = new List<Func<int, Enemy>>
+        {
+            w => new DragonBoss(w),
+            w => new WormBoss(w),
+            w => new SpectralShadowBoss(w)
+        };
+
+            // Mélanger la liste pour varier l'ordre
+            bosses = bosses.OrderBy(x => random.Next()).ToList();
+
+            bossCycle = new Queue<Func<int, Enemy>>(bosses);
+        }
+
         public static Enemy CreateBoss(int wave)
         {
-            List<Func<int, Enemy>> bossConstructors = new List<Func<int, Enemy>>
+            if (wave == 10)
             {
-                w => new DragonBoss(w),
-                w => new WormBoss(w),
-                w => new SpectralShadowBoss(w)
-            };
+                var sorcerer = new SorcererBoss(wave);
+                sorcerer.IsBoss = true;
+                return sorcerer;
+            }
 
-            int index = random.Next(bossConstructors.Count);
-            var chosenBoss = bossConstructors[index](wave);
+            if (bossCycle.Count == 0)
+                ResetBossCycle();
+
+            var chosenBoss = bossCycle.Dequeue()(wave);
             chosenBoss.IsBoss = true;
 
             return chosenBoss;
@@ -1292,8 +1863,24 @@ namespace JeuSurvieConsole
 
             player.Inventory[potion]++;
             Console.WriteLine($"\n🎉 {enemy.Name} a laissé tomber une potion de type {potion} !");
-            Console.WriteLine("Appuyez sur une touche pour continuer...");
-            Console.ReadKey(true);
+        }
+        public static void DropElementStone(Player player, Enemy enemy, Random rng)
+        {
+            if (enemy.Element == ElementType.Fire || enemy.Element == ElementType.Ice)
+            {
+                string stoneName = enemy.Element == ElementType.Fire ? "Pierre enflammée" : "Pierre congelée";
+
+                // Drop garanti
+                player.ElementStones[stoneName]++;
+                Console.WriteLine($"\n💎 {enemy.Name} a laissé tomber une {stoneName} !");
+
+                // 50% de chance pour une deuxième pierre
+                if (rng.NextDouble() < 0.5)
+                {
+                    player.ElementStones[stoneName]++;
+                    Console.WriteLine($"💎 Chance ! Vous trouvez une deuxième {stoneName} !");
+                }
+            }
         }
     }
 
@@ -1330,7 +1917,21 @@ namespace JeuSurvieConsole
                 new ShopItem("Potion de soin (+100 PV)", 5, healStock, p => p.Inventory[PotionType.Heal]++),
                 new ShopItem("Potion de dégâts (+20 dégâts x10 tours)", 10, damageStock, p => p.Inventory[PotionType.Damage]++),
                 new ShopItem("Super potion de soin (+250 PV)", 20, superHealStock, p => p.Inventory[PotionType.SuperHeal]++),
-                new ShopItem("Augmentation PV max permanente (+200 PV)", 100, 1, p => p.IncreaseMaxHealth(200))
+                new ShopItem("Augmentation PV max permanente (+200 PV)", 100, 1, p => p.IncreaseMaxHealth(200)),
+                new ShopItem("Pierre enflammée", 30, 1, p =>
+                {
+                    if (!p.ElementStones.ContainsKey("Pierre enflammée"))
+                        p.ElementStones["Pierre enflammée"] = 0;
+                    p.ElementStones["Pierre enflammée"]++;
+                    Console.WriteLine("🔥 Vous avez acheté une Pierre enflammée !");
+                }),
+                new ShopItem("Pierre congelée", 30, 1, p =>
+                {
+                    if (!p.ElementStones.ContainsKey("Pierre congelée"))
+                        p.ElementStones["Pierre congelée"] = 0;
+                    p.ElementStones["Pierre congelée"]++;
+                    Console.WriteLine("❄️ Vous avez acheté une Pierre congelée !");
+                })
             };
         }
 
@@ -1431,6 +2032,7 @@ namespace JeuSurvieConsole
                             {
                                 // Achat 1 ou tout le stock
                                 Console.WriteLine($"\nSouhaitez-vous :");
+                                Console.WriteLine($"[0] Annuler l'achat");
                                 Console.WriteLine($"[1] Acheter 1 pour {stockItem.Price} or");
                                 Console.WriteLine($"[2] Acheter tout le stock ({stockItem.Stock}) pour {stockItem.Stock * stockItem.Price} or");
                                 Console.Write("Votre choix : ");
@@ -1485,6 +2087,10 @@ namespace JeuSurvieConsole
                                             }
                                         }
                                     }
+                                }
+                                else if (input == "0" || string.IsNullOrEmpty(input))
+                                {
+                                    Console.WriteLine("❌ Achat annulé.");
                                 }
                                 else
                                 {
@@ -1600,9 +2206,10 @@ namespace JeuSurvieConsole
     {
         public string Name { get; }
         public string Formula { get; }
-        public string Description { get; }
+        public string Description { get; private set; }
         public int EssenceCost { get; }
-        public Action<Player, Enemy> Effect { get; }
+        public Action<Player, Enemy> Effect { get; private set; }
+        public int Level { get; private set; } = 1;
 
         public Spell(string name, string hardcodedFormulaOrNull, string description,
                      int cost, Action<Player, Enemy> effect)
@@ -1612,6 +2219,13 @@ namespace JeuSurvieConsole
             Description = description;
             EssenceCost = cost;
             Effect = effect;
+        }
+
+        public void Upgrade(string newDescription, Action<Player, Enemy> newEffect)
+        {
+            Level++;
+            Description = newDescription;
+            Effect = newEffect;
         }
 
         private static string GenerateFormula()
@@ -1625,6 +2239,22 @@ namespace JeuSurvieConsole
         }
     }
 
+    class SpellUpgrade
+    {
+        public string SpellFormula { get; }
+        public int NewLevel { get; }
+        public string UpgradeDescription { get; }
+        public Action<Player, Enemy> NewEffect { get; }
+
+        public SpellUpgrade(string formula, int newLevel, string description, Action<Player, Enemy> effect)
+        {
+            SpellFormula = formula;
+            NewLevel = newLevel;
+            UpgradeDescription = description;
+            NewEffect = effect;
+        }
+    }
+
     class DarkMage
     {
         private static Random rng = new();
@@ -1632,7 +2262,7 @@ namespace JeuSurvieConsole
         private static List<Spell> MasterSpells = new()
     {
         new Spell("Vol de vie interdit", null,
-            "Inflige 60 dégâts et rend 100 PV — coût : 90 Essence",
+            "Niv 1 : Inflige 60 dégâts et rend 100 PV — coût : 90 Essence",
             90,
             (pl, en) =>
             {
@@ -1641,18 +2271,18 @@ namespace JeuSurvieConsole
                 Console.WriteLine("🩸 Vous drainez l'énergie vitale de l'ennemi !");
             }),
 
-        new Spell("Mur d’obsidienne", null,
-            "Réduit de 66 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
+        new Spell("Mur d'obsidienne", null,
+            "Niv 1 : Réduit de 66 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
             60,
             (pl, en) =>
             {
-                pl.ObsidianShieldTurns = 3;
+                pl.ObsidianShieldTurns = 4;
                 pl.IsDefending = false;
                 Console.WriteLine("🛡️ Une barrière d'obsidienne vous protège !");
             }),
 
-        new Spell("Brisure d’arme", null,
-            "Désarme l'ennemi et réduit ses dégâts de 30 % — coût : 60 Essence",
+        new Spell("Brisure d'arme", null,
+            "Niv 1 : Réduit les dégâts de l'ennemi de 30 % — coût : 60 Essence",
             60,
             (pl, en) =>
             {
@@ -1661,44 +2291,146 @@ namespace JeuSurvieConsole
             })
     };
 
+        // Définitions des upgrades pour chaque sort
+        private static Dictionary<string, SpellUpgrade> SpellUpgrades = new();
+
+        private static void InitializeUpgrades()
+        {
+            if (SpellUpgrades.Count > 0) return;
+
+            // Upgrade pour Vol de vie
+            var vieSpell = MasterSpells[0];
+            SpellUpgrades[vieSpell.Formula] = new SpellUpgrade(
+                vieSpell.Formula,
+                2,
+                "Niv 2 : Inflige 200 dégâts et rend 300 PV — coût : 90 Essence",
+                (pl, en) =>
+                {
+                    en.TakeDamage(200);
+                    pl.Heal(300);
+                    Console.WriteLine("🩸💀 Vous drainez massivement l'énergie vitale de l'ennemi !");
+                }
+            );
+
+            // Upgrade pour Mur d'obsidienne
+            var murSpell = MasterSpells[1];
+            SpellUpgrades[murSpell.Formula] = new SpellUpgrade(
+                murSpell.Formula,
+                2,
+                "Niv 2 : Réduit de 80 % les dégâts reçus pendant 3 tours — coût : 60 Essence",
+                (pl, en) =>
+                {
+                    pl.ObsidianShieldTurns = 4;
+                    pl.IsDefending = false;
+                    Console.WriteLine("🛡️✨ Une barrière d'obsidienne renforcée vous protège !");
+                }
+            );
+
+            // Upgrade pour Brisure d'arme
+            var brisureSpell = MasterSpells[2];
+            SpellUpgrades[brisureSpell.Formula] = new SpellUpgrade(
+                brisureSpell.Formula,
+                2,
+                "Niv 2 : Réduit les dégâts de l'ennemi de 50 % — coût : 60 Essence",
+                (pl, en) =>
+                {
+                    en.AttackPower = (int)(en.AttackPower * 0.5);
+                    Console.WriteLine($"🗡️⚡ {en.Name} voit ses dégâts grandement réduits !");
+                }
+            );
+        }
+
         public void OfferSpell(Player p)
         {
-            // Spells que le joueur ne connaît pas encore
+            InitializeUpgrades();
+
+            // Vérifier si le joueur connaît tous les sorts de base
             var unknown = MasterSpells
                 .Where(sp => !p.LearnedSpells.Any(ls => ls.Formula == sp.Formula))
                 .ToList();
 
-            if (unknown.Count == 0)
+            if (unknown.Count > 0)
             {
-                Console.WriteLine("Le mage noir n'a plus rien à vous enseigner...");
+                // Proposer un nouveau sort
+                var spell = unknown[rng.Next(unknown.Count)];
+
+                Console.Clear();
+                Console.WriteLine("Vous sentez une présence sinistre dans l'air...\n");
                 Console.ReadKey(true);
-                return;
-            }
+                Console.WriteLine("Quelqu'un apparaît juste derrière vous...");
+                Console.ReadKey(true);
+                Console.WriteLine("🌑 Un mage noir vous tend un grimoire :");
+                Console.WriteLine($" Voulez-vous apprendre « {spell.Name} » ?");
+                Console.WriteLine($" {spell.Description}");
+                Console.Write("\nApprendre ce sort ? (O/N) ");
 
-            var spell = unknown[rng.Next(unknown.Count)];
-
-            Console.Clear();
-            Console.WriteLine("Vous sentez une présence sinistre dans l'air...\n"); Console.ReadKey(true);
-            Console.WriteLine("Quelqu'un apparaît juste derrière vous..."); Console.ReadKey(true);
-            Console.WriteLine("🌑 Un mage noir vous tend un grimoire :");
-            Console.WriteLine($" Voulez-vous apprendre « {spell.Name} » ? {spell.Description}");
-            Console.Write("Apprendre ce sort ? (O/N) ");
-
-            if (Console.ReadKey(true).Key == ConsoleKey.O)
-            {
-                // ←─ utilisation de la méthode utilitaire
-                p.LearnSpell(spell);
-
-                // On révèle la formule une seule fois
-                Console.WriteLine($"   Formule secrète : {spell.Formula.ToUpper()}");
+                if (Console.ReadKey(true).Key == ConsoleKey.O)
+                {
+                    p.LearnSpell(spell);
+                    Console.WriteLine($"\n\n✨ Sort appris !");
+                    Console.WriteLine($"Cette formule ne vous sera jamais répétée, retenez-la !");
+                    Console.WriteLine($"Formule secrète : {spell.Formula.ToUpper()}");
+                }
+                else
+                {
+                    Console.WriteLine("\nVous déclinez l'offre sinistre.");
+                }
             }
             else
             {
-                Console.WriteLine("Vous déclinez l'offre sinistre.");
+                // Tous les sorts sont connus, proposer des upgrades
+                var upgradeable = p.LearnedSpells
+                    .Where(sp => sp.Level == 1 && SpellUpgrades.ContainsKey(sp.Formula))
+                    .ToList();
+
+                if (upgradeable.Count == 0)
+                {
+                    Console.WriteLine("\n🌑 Le mage noir n'a plus rien à vous enseigner...");
+                    Console.ReadKey(true);
+                    return;
+                }
+
+                var spellToUpgrade = upgradeable[rng.Next(upgradeable.Count)];
+                var upgrade = SpellUpgrades[spellToUpgrade.Formula];
+
+                Console.Clear();
+                Console.WriteLine("Le mage noir réapparaît dans les ombres...\n");
+                Console.ReadKey(true);
+                Console.WriteLine("🌑 « Vous maîtrisez déjà mes sorts de base... »");
+                Console.ReadKey(true);
+                Console.WriteLine("🌑 « Mais êtes-vous prêt à en découvrir la véritable puissance ? »\n");
+                Console.ReadKey(true);
+                Console.WriteLine($"Améliorer « {spellToUpgrade.Name} » au niveau 2 ?");
+                Console.WriteLine($"\nActuel : {spellToUpgrade.Description}");
+                Console.WriteLine($"Amélioré : {upgrade.UpgradeDescription}");
+                Console.Write("\nAccepter l'amélioration ? (O/N) ");
+
+                if (Console.ReadKey(true).Key == ConsoleKey.O)
+                {
+                    spellToUpgrade.Upgrade(upgrade.UpgradeDescription, upgrade.NewEffect);
+                    Console.WriteLine($"\n\n⚡ {spellToUpgrade.Name} a été amélioré au niveau 2 !");
+                    Console.WriteLine("La puissance du sort a considérablement augmenté !");
+                }
+                else
+                {
+                    Console.WriteLine("\nVous refusez pour le moment.");
+                }
             }
 
             Console.ReadKey(true);
         }
     }
 
+    public class ElementStatus
+    {
+        public ElementType Type { get; set; }
+        public int Duration { get; set; }
+        public bool IsActive => Duration > 0;
+
+        public ElementStatus(ElementType type, int duration)
+        {
+            Type = type;
+            Duration = duration;
+        }
+    }
 }
